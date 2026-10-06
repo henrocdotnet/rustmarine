@@ -9,6 +9,7 @@ use std::{
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    pub runtime_dir: Option<PathBuf>,
     pub backend_dir: Option<PathBuf>,
     pub analyzer_dir: Option<PathBuf>,
     #[serde(default)]
@@ -46,9 +47,13 @@ impl Config {
             .parent()
             .context("Configuration has no parent")?
             .to_path_buf();
-        for path in [&mut config.backend_dir, &mut config.analyzer_dir]
-            .into_iter()
-            .flatten()
+        for path in [
+            &mut config.runtime_dir,
+            &mut config.backend_dir,
+            &mut config.analyzer_dir,
+        ]
+        .into_iter()
+        .flatten()
         {
             if path.is_relative() {
                 *path = base.join(&*path);

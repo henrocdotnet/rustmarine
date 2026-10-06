@@ -9,6 +9,7 @@ fn cli(root: &Path, args: &[&str]) -> Output {
         .current_dir(root)
         .env_remove("RUSTMARINE_BACKEND_DIR")
         .env_remove("RUSTMARINE_ANALYZER_DIR")
+        .env("RUSTMARINE_RUNTIME_DIR", root.join(".test-runtime"))
         .args(args)
         .output()
         .expect("run CLI")

@@ -2,6 +2,7 @@ mod config;
 mod engine;
 mod output;
 mod rpc;
+mod runtime;
 mod selection;
 
 use anyhow::{bail, Context, Result};
@@ -23,7 +24,7 @@ use std::{
     name = "rustmarine",
     version,
     about = "Scan local source changes with Sonar analyzers",
-    long_about = "Scan local source changes with Sonar analyzers. Requires a SLOOP runtime, analyzer JARs, and Java 21+. Findings exit 1; operational errors exit 2. Source analysis runs locally."
+    long_about = "Scan local source changes with Sonar analyzers. Run init once to provision the analysis environment. Findings exit 1; operational errors exit 2. Source analysis runs locally."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -32,12 +33,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Provision and verify an independent SLOOP, analyzer, Java, and Node environment
+    Init(InitArgs),
     /// Analyze selected files (defaults to staged, unstaged, and untracked changes)
     Scan(ScanArgs),
     /// List the files a scan would analyze, without starting the engine
     Files(FileArgs),
     /// Check runtime paths and Java availability
     Doctor(DoctorArgs),
+}
+
+#[derive(Args)]
+struct InitArgs {
+    /// Managed runtime storage directory (default: user application data/rustmarine)
+    #[arg(long, env = "RUSTMARINE_RUNTIME_DIR")]
+    runtime_dir: Option<PathBuf>,
+    /// Install using verified cached downloads only; never access the network
+    #[arg(long)]
+    offline: bool,
+    /// Rebuild the installation from verified downloads and rerun analysis checks
+    #[arg(long)]
+    repair: bool,
 }
 
 #[derive(Args)]
@@ -77,19 +93,22 @@ impl FileArgs {
 
 #[derive(Args)]
 struct RuntimeArgs {
+    /// Managed runtime directory created by init
+    #[arg(long, env = "RUSTMARINE_RUNTIME_DIR")]
+    runtime_dir: Option<PathBuf>,
     /// Configuration file (default: <root>/.rustmarine.toml)
     #[arg(long)]
     config: Option<PathBuf>,
     /// Extracted SLOOP directory containing lib/
     #[arg(long, env = "RUSTMARINE_BACKEND_DIR")]
     backend_dir: Option<PathBuf>,
-    /// Directory containing Sonar analyzer JARs (not IntelliJ plugin libraries)
+    /// Directory containing Sonar analyzer JARs
     #[arg(long, env = "RUSTMARINE_ANALYZER_DIR")]
     analyzer_dir: Option<PathBuf>,
     /// Individual analyzer JAR; repeat to load multiple analyzers
     #[arg(long)]
     plugin: Vec<PathBuf>,
-    /// Java executable; otherwise uses configuration, JAVA_HOME, then PATH
+    /// Java executable; defaults to managed Java, then JAVA_HOME/PATH
     #[arg(long)]
     java: Option<PathBuf>,
     /// Node.js executable for JavaScript/TypeScript analysis
@@ -171,8 +190,18 @@ fn runtime_options(
     verbose: bool,
     properties: &[(String, String)],
 ) -> Result<engine::EngineOptions> {
-    let backend_dir = args.backend_dir.clone().or(config.backend_dir)
-        .context("SLOOP runtime is not configured. Set --backend-dir, RUSTMARINE_BACKEND_DIR, or backend_dir in .rustmarine.toml. See rust-cli/README.md.")?
+    let external_backend = args.backend_dir.clone().or(config.backend_dir);
+    let managed = if external_backend.is_none() {
+        runtime::load(
+            args.runtime_dir
+                .as_deref()
+                .or(config.runtime_dir.as_deref()),
+        )?
+    } else {
+        None
+    };
+    let backend_dir = external_backend.or_else(|| managed.as_ref().map(|r| r.backend_dir.clone()))
+        .context("SLOOP runtime is not configured. Run rustmarine init, or set --backend-dir for an external runtime. See rust-cli/README.md.")?
         .canonicalize().context("Cannot find SLOOP backend directory")?;
     if !backend_dir.join("lib").is_dir() {
         bail!(
@@ -183,7 +212,8 @@ fn runtime_options(
     let directory = args
         .analyzer_dir
         .as_deref()
-        .or(config.analyzer_dir.as_deref());
+        .or(config.analyzer_dir.as_deref())
+        .or_else(|| managed.as_ref().map(|r| r.analyzer_dir.as_path()));
     let mut configured_plugins = config.plugins;
     configured_plugins.extend(args.plugin.iter().cloned());
     let plugins = config::plugins(directory, &configured_plugins)?;
@@ -191,6 +221,7 @@ fn runtime_options(
         args.java
             .clone()
             .or(config.java)
+            .or_else(|| managed.as_ref().map(|r| r.java.clone()))
             .or_else(|| {
                 env::var_os("JAVA_HOME").map(|home| {
                     PathBuf::from(home).join("bin").join(if cfg!(windows) {
@@ -202,7 +233,12 @@ fn runtime_options(
             })
             .unwrap_or_else(|| PathBuf::from("java")),
     );
-    let node = args.node.clone().or(config.node).map(executable);
+    let node = args
+        .node
+        .clone()
+        .or(config.node)
+        .or_else(|| managed.as_ref().map(|r| r.node.clone()))
+        .map(executable);
     let mut analysis_properties = config.properties;
     analysis_properties.extend(properties.iter().cloned());
     let rules = config
@@ -350,6 +386,12 @@ fn scan(args: &ScanArgs) -> Result<u8> {
 
 fn run(cli: &Cli) -> Result<u8> {
     match &cli.command {
+        Commands::Init(args) => {
+            let installation =
+                runtime::init(args.runtime_dir.as_deref(), args.offline, args.repair)?;
+            write_stdout(&serde_json::to_string_pretty(&installation)?)?;
+            Ok(0)
+        }
         Commands::Scan(args) => scan(args),
         Commands::Files(args) => {
             let selected = args.select()?;

@@ -65,7 +65,7 @@ pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Resul
         )
     })?;
     if !backend.join("lib").is_dir() {
-        bail!("Backend directory must contain lib/: {}. Use the sloop directory from a SonarQube for IDE distribution.", backend.display());
+        bail!("Backend directory must contain lib/: {}. Run rustmarine init or provide a standalone backend distribution.", backend.display());
     }
     if options.plugins.is_empty() {
         bail!("No analyzer plugins configured; provide --analyzer-dir or --plugin");

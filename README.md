@@ -1,6 +1,6 @@
 # Rustmarine
 
-`rustmarine` is a Rust CLI for coding agents and humans. It selects source changes from Git, runs the same SonarLint out-of-process engine (SLOOP) used by this IntelliJ plugin, and returns findings with rule keys, severity, locations, and flows. JSON is the default; text and SARIF are also available.
+`rustmarine` is a Rust CLI for coding agents and humans. It selects source changes from Git, runs Sonar's out-of-process engine (SLOOP), and returns findings with rule keys, severity, locations, and flows. JSON is the default; text and SARIF are also available.
 
 This first version implements **standalone local scanning**. The Rust binary manages file selection, configuration, engine communication, and output. Sonar's existing Java analyzers perform the analysis. Connected SonarQube/SonarCloud features, issue synchronization, IDE quick-fix application, and IDE-specific compiler configuration are outside this version.
 
@@ -13,32 +13,49 @@ cargo build --release --locked --manifest-path rust-cli/Cargo.toml
 cargo install --locked --path rust-cli
 ```
 
-Analysis also requires a full Java 21+ runtime and the Sonar runtime/analyzers. Java 21 is the tested choice; stripped IDE runtimes can lack facilities required by the backend. The CLI does not require IntelliJ to be running.
-
-Use an installed SonarQube for IDE plugin or extract a plugin ZIP downloaded from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/7973-sonarqube-for-ide). Keep its backend and analyzers from the same distribution:
-
-```text
-sonarlint-intellij/
-  sloop/
-    lib/*.jar            # backend and its dependencies
-  plugins/
-    sonar-*-plugin*.jar  # language analyzers
-    eslint-bridge/       # when included by that distribution
-```
-
-The IntelliJ plugin's `lib/` directory is distinct from the analyzer `plugins/` directory. Pass the directories above explicitly:
+Provision the entire analysis environment with one command:
 
 ```sh
-export RUSTMARINE_BACKEND_DIR=/path/to/sonarlint-intellij/sloop
-export RUSTMARINE_ANALYZER_DIR=/path/to/sonarlint-intellij/plugins
-export JAVA_HOME=/path/to/full/jdk-21
-rustmarine doctor --root /path/to/project
+rustmarine init
+rustmarine doctor
 rustmarine scan --root /path/to/project
 ```
 
-For example, installed plugins on macOS often live beneath `~/Library/Application Support/JetBrains/<product-version>/plugins/sonarlint-intellij/`. Paths containing spaces should be quoted. `--backend-dir`, `--analyzer-dir`, `--plugin` (repeatable), and `--java` can replace the environment settings. `doctor` validates paths and the Java version; a scan validates engine compatibility.
+`init` downloads SLOOP and language analyzer JARs directly from **Maven Central**, a full **Eclipse Temurin Java 21 JRE** from Adoptium's GitHub releases, and **Node.js 22** from nodejs.org. It does not use IntelliJ, a JetBrains Marketplace ZIP, Gradle, Artifactory credentials, preinstalled Java/Node, or files from this repository's IntelliJ plugin. The CLI's own `runtime-manifest.json` pins component versions, source URLs, and SHA-256 digests.
 
-The protocol follows the API used by this repository's `BackendService.kt` (core version `12.1.0.87590`). Real scanning has been verified with an installed backend `10.47.0.84936` and its matching analyzers on Java `21.0.5`. Other distributions may change the protocol or language requirements. Backend binaries and analyzer JARs are not bundled in the Cargo package; their upstream licenses still apply.
+The current catalog provisions SLOOP `11.10.0.86299`, Temurin `21.0.12.1+1`, Node `22.23.3`, and eleven analyzers for Java, Python, JavaScript/TypeScript/CSS, HTML, Kotlin, Ruby, XML, Go, PHP, IaC/YAML, and secrets detection. Backend and analyzer releases are selected and verified together by this client; their version numbers are independent.
+
+Every download is verified before extraction. Setup stages the installation, executes the managed Java/Node binaries, and requires real Java, Python, and JavaScript findings before activating it. A successful `init` returns JSON with the installed versions and executable paths. Progress and errors go to stderr; an unsuccessful setup exits 2. Setup does not modify the project or its configuration.
+
+Storage defaults to the current user's application data directory:
+
+- macOS: `~/Library/Application Support/rustmarine`
+- Linux: `$XDG_DATA_HOME/rustmarine`, normally `~/.local/share/rustmarine`
+- Windows: `%LOCALAPPDATA%/rustmarine`
+
+The directory contains `downloads/` (verified archives) and `releases/<catalog-id>-<platform>/` (the installed backend, analyzers, Java, Node, and integrity receipt). Scans and `doctor` discover the installed catalog automatically. To use another directory consistently:
+
+```sh
+export RUSTMARINE_RUNTIME_DIR=/path/to/rustmarine-runtime
+rustmarine init
+rustmarine scan --root /path/to/project
+```
+
+Alternatively, pass `--runtime-dir` to each command or put `runtime_dir` in project configuration for scans. Relative CLI paths are resolved from the current directory. Managed runtime support covers macOS, Windows, and glibc Linux on x86-64 and ARM64. Other platforms can supply external runtime paths. Only macOS ARM64 has been exercised end to end so far.
+
+Repeating `init` checks the existing installation's file hashes and reruns analysis checks. Downloads are reused when their digests match. A damaged installation is diagnosed rather than silently used by `init`:
+
+```sh
+rustmarine init --repair         # Rebuild using verified cached or fresh downloads
+rustmarine init --offline        # Check installed runtime, or install from a complete cache
+rustmarine init --repair --offline
+```
+
+Offline setup makes no HTTP requests. It fails if a required archive is missing or corrupt. Failed setup leaves any previously installed runtime intact. Downloads and staged files are written atomically, installation commands are serialized with a file lock, and archives cannot write outside their extraction directory. Scans check installed file presence; the more expensive hash and analysis checks are performed by `init`.
+
+Updates are explicit and reproducible: a new CLI release ships a reviewed runtime catalog with a new catalog ID, and running `init` installs that catalog alongside older releases. Setup never selects arbitrary latest components at runtime. For development, change versions and SHA-256 digests in `runtime-manifest.json`, bump its `id`, and run the standalone setup/analysis checks before releasing the CLI. Java/Node security updates also require a catalog revision. Automatic update discovery is not implemented.
+
+External installations remain optional: `--backend-dir`, `--analyzer-dir`, repeatable `--plugin`, `--java`, and `--node` override managed defaults. `RUSTMARINE_BACKEND_DIR` and `RUSTMARINE_ANALYZER_DIR` are still supported. Providing an external backend opts out of managed component discovery, so the caller supplies its analyzers and Java. Backend binaries and analyzers are downloaded assets, not bundled in the Rust executable; their upstream licenses and notices are preserved in the distributions.
 
 ## Agent workflow
 
@@ -85,13 +102,11 @@ A scan with no selected files succeeds without starting or configuring the engin
 
 ## Project configuration
 
-Put `.rustmarine.toml` at the project root, or use `--config /path/to/config.toml`. Unknown configuration keys are rejected. Directory/JAR paths are relative to the configuration file. Bare Java/Node executable names use `PATH`; paths containing directories are resolved relative to the configuration file. CLI and environment runtime options take precedence over configuration. Individual `--plugin` values are added to configured plugins.
+Put `.rustmarine.toml` at the project root, or use `--config /path/to/config.toml`. Unknown configuration keys are rejected. Directory/JAR paths are relative to the configuration file. Bare Java/Node executable names use `PATH`; paths containing directories are resolved relative to the configuration file. CLI and environment runtime options take precedence over configuration, which takes precedence over managed defaults. Individual `--plugin` values are added to configured plugins.
 
 ```toml
-backend_dir = "/path/to/sonarlint-intellij/sloop"
-analyzer_dir = "/path/to/sonarlint-intellij/plugins"
-java = "/path/to/full/jdk-21/bin/java"
-node = "/path/to/node"  # optional, for JavaScript/TypeScript
+# Optional: omit runtime paths to use the environment created by init.
+# runtime_dir = "/path/to/rustmarine-runtime"
 
 [properties]
 "sonar.java.binaries" = "/path/to/project/build/classes/java/main"
@@ -107,7 +122,7 @@ parameters = { format = "^[a-z][a-zA-Z0-9]*$" }
 
 A repeatable `--property KEY=VALUE` overrides configured analysis properties. Java, Kotlin, and other analyzers may need compiler outputs, dependencies, or language-specific properties to provide full semantic analysis. Properties such as `sonar.java.binaries` that refer to project files should use absolute paths when required by the analyzer; the backend work directory is separate from the project.
 
-The standalone language set follows this IntelliJ client's standard languages plus Java and Go, independent of installed IDE language plugins: HTML, XML, JavaScript, TypeScript, CSS, Kotlin, PHP, Python, Ruby, YAML/IaC, Java, Go, and secrets detection. Actual rules depend on the analyzer JARs supplied and their requirements. C/C++ and C# need additional IDE/build context and are not enabled by this initial client. Rust language analysis is not enabled in this standalone language set; a Rust implementation of the client does not add Rust analysis rules.
+The standalone language set enabled by this client is: HTML, XML, JavaScript, TypeScript, CSS, Kotlin, PHP, Python, Ruby, YAML/IaC, Java, Go, and secrets detection. Actual rules depend on the analyzer JARs supplied and their requirements. C/C++ and C# need additional IDE/build context and are not enabled by this initial client. Rust language analysis is not enabled in this standalone language set; a Rust implementation of the client does not add Rust analysis rules.
 
 `scanned_files` records files submitted for analysis, after known backend exclusions. It is not a per-language coverage guarantee: SLOOP does not expose which analyzer actually inspected each file in the one-shot result. An unsupported file can produce no language findings; secrets detection may still inspect it. Backend exclusions are reported separately in `skipped_files`, and failed analyses in `failed_files`. Analyzer loading failures cause an operational error.
 
@@ -123,7 +138,7 @@ Successful JSON reports use `schema_version: 1` with:
 
 Lines and columns in `range` are 1-based, columns count UTF-16 code units, and the end is exclusive. A null range denotes a file/project-level finding; path `.` denotes the project. `details` preserves the raw engine payload, including quick fixes and rule context when supplied. Engine metadata in `details` can change independently of the normalized fields. Malformed findings cause an error rather than being discarded.
 
-SLOOP launches as a child process over bidirectional Content-Length-framed JSON-RPC. The client initializes standalone analyzers, registers one project scope, answers filesystem/property callbacks, waits for analysis readiness, then calls `analysis/analyzeFilesAndTrack`. Source files are read locally. No server connections are configured, and telemetry/monitoring are disabled. Runtime downloads or analyzer provisioning can still depend on the distribution and configured language requirements.
+SLOOP launches as a child process over bidirectional Content-Length-framed JSON-RPC. The client initializes standalone analyzers, registers one project scope, answers filesystem/property callbacks, waits for analysis readiness, then calls `analysis/analyzeFilesAndTrack`. Source files are read locally. No server connections are configured, and telemetry/monitoring are disabled. The managed Java/Node binaries and analyzer assets are provisioned by init; ordinary scans do not download the managed runtime.
 
 ## Validation
 
@@ -133,7 +148,7 @@ cargo fmt --check --manifest-path rust-cli/Cargo.toml
 cargo clippy --locked --manifest-path rust-cli/Cargo.toml --all-targets -- -D warnings
 ```
 
-The tests cover Git selection, configuration, framing, finding normalization, output formats, and command behavior. A separate ignored smoke test verifies real Java findings, exit thresholds, and rule deactivation:
+The tests cover Git selection, configuration, framing, finding normalization, output formats, and command behavior. A separate ignored smoke test verifies real Java findings, exit thresholds, and rule deactivation with an external runtime:
 
 ```sh
 RUSTMARINE_TEST_BACKEND_DIR="$RUSTMARINE_BACKEND_DIR" \
@@ -143,3 +158,9 @@ cargo test --locked --manifest-path rust-cli/Cargo.toml --test engine_smoke -- -
 ```
 
 Cargo dependencies and `Cargo.lock` are independent of the IntelliJ Gradle dependency locks.
+
+A standalone managed-runtime smoke test can download a complete environment and verify discovery, offline reuse, repair, and real Java/Python/JavaScript findings without any IDE installation:
+
+```sh
+cargo test --locked --manifest-path rust-cli/Cargo.toml --test managed_smoke -- --ignored
+```
