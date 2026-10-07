@@ -6,12 +6,15 @@ This first version implements **standalone local scanning**. The Rust binary man
 
 ## Build and runtime setup
 
-Build with Rust 1.88 or later:
+Build with Rust 1.88 or later. From the Rustmarine checkout containing `Cargo.toml`:
 
 ```sh
-cargo build --release --locked --manifest-path rust-cli/Cargo.toml
-cargo install --locked --path rust-cli
+make build      # Default target; produces target/release/rustmarine
+make install    # Builds and installs rustmarine into Cargo's binary directory
+make help       # Lists all targets
 ```
+
+Make wraps Cargo commands. Without Make, use `cargo build --release --locked` and `cargo install --locked --path .`. From the enclosing IntelliJ repository, use `make -C rust-cli <target>`.
 
 Provision the entire analysis environment with one command:
 
@@ -148,10 +151,12 @@ SLOOP launches as a child process over bidirectional Content-Length-framed JSON-
 ## Validation
 
 ```sh
-cargo test --locked --manifest-path rust-cli/Cargo.toml
-cargo fmt --check --manifest-path rust-cli/Cargo.toml
-cargo clippy --locked --manifest-path rust-cli/Cargo.toml --all-targets -- -D warnings
+make check      # Formatting check, Clippy, and unit/integration tests
+make test       # Unit/integration tests only
+make fmt        # Apply Rust formatting
 ```
+
+`make check` leaves source formatting unchanged. Use `make run ARGS='--help'` to run the CLI, or `make scan ARGS='--root /path/to/project --format text'` to scan. `make init` and `make doctor` run their corresponding commands; each accepts `ARGS`. Set `CARGO=/path/to/cargo` to override the Cargo executable.
 
 The tests cover Git selection, configuration, framing, finding normalization, output formats, and command behavior. A separate ignored smoke test verifies real Java findings, exit thresholds, and rule deactivation with an external runtime:
 
@@ -159,7 +164,7 @@ The tests cover Git selection, configuration, framing, finding normalization, ou
 RUSTMARINE_TEST_BACKEND_DIR="$RUSTMARINE_BACKEND_DIR" \
 RUSTMARINE_TEST_ANALYZER_DIR="$RUSTMARINE_ANALYZER_DIR" \
 RUSTMARINE_TEST_JAVA="$JAVA_HOME/bin/java" \
-cargo test --locked --manifest-path rust-cli/Cargo.toml --test engine_smoke -- --ignored
+make smoke
 ```
 
 Cargo dependencies and `Cargo.lock` are independent of the IntelliJ Gradle dependency locks.
@@ -167,5 +172,5 @@ Cargo dependencies and `Cargo.lock` are independent of the IntelliJ Gradle depen
 A standalone managed-runtime smoke test can download a complete environment and verify discovery, offline reuse, repair, and real Java/Python/JavaScript findings without any IDE installation:
 
 ```sh
-cargo test --locked --manifest-path rust-cli/Cargo.toml --test managed_smoke -- --ignored
+make smoke-managed
 ```
