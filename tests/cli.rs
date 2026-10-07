@@ -76,6 +76,7 @@ fn help_exposes_commands_and_scan_contract() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("--staged") && text.contains("--base") && text.contains("--format"));
     assert!(text.contains("current working-tree contents"));
+    assert!(text.contains("--no-save"));
 }
 
 #[test]
@@ -197,4 +198,114 @@ fn missing_explicit_files_are_operational_errors() {
         .as_str()
         .unwrap()
         .contains("missing.rs"));
+}
+
+fn runs(root: &Path) -> Vec<std::path::PathBuf> {
+    fs::read_dir(root.join(".rustmarine/runs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect()
+}
+
+#[test]
+fn scans_save_reports_without_selecting_previous_runs_or_overwriting_them() {
+    let directory = clean_repository();
+    for _ in 0..2 {
+        let output = cli(directory.path(), &["scan"]);
+        assert_eq!(output.status.code(), Some(0));
+        assert!(json_stdout(&output)["scanned_files"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(output.stderr.is_empty());
+        assert!(runs(directory.path())
+            .iter()
+            .any(|run| { fs::read(run.join("report.json")).unwrap() == output.stdout }));
+    }
+    let saved = runs(directory.path());
+    assert_eq!(saved.len(), 2);
+    for run in saved {
+        let stamp = run.file_name().unwrap().to_str().unwrap();
+        assert!(stamp.len() >= 15);
+        assert_eq!(&stamp[8..9], "_");
+        assert!(stamp[..8].chars().all(|c| c.is_ascii_digit()));
+        assert!(stamp[9..15].chars().all(|c| c.is_ascii_digit()));
+        assert!(fs::read_to_string(run.join("scan.log"))
+            .unwrap()
+            .contains("Scan completed"));
+    }
+    let output = cli(directory.path(), &["files", "--all"]);
+    assert_eq!(json_stdout(&output)["files"], json!(["source.rs"]));
+}
+
+#[test]
+fn no_save_creates_no_run_directory_including_on_errors() {
+    let directory = clean_repository();
+    let output = cli(directory.path(), &["scan", "--no-save"]);
+    assert_eq!(output.status.code(), Some(0));
+    let output = cli(directory.path(), &["scan", "--no-save", "missing.rs"]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(json_stdout(&output)["error"].is_object());
+    assert!(!directory.path().join(".rustmarine").exists());
+}
+
+#[test]
+fn scans_save_selected_output_format_and_operational_errors() {
+    for (format, filename) in [("text", "report.txt"), ("sarif", "report.sarif")] {
+        let directory = clean_repository();
+        let output = cli(directory.path(), &["scan", "--format", format]);
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            fs::read(runs(directory.path())[0].join(filename)).unwrap(),
+            output.stdout
+        );
+    }
+    let directory = clean_repository();
+    let output = cli(directory.path(), &["scan", "missing.rs"]);
+    assert_eq!(output.status.code(), Some(2));
+    let run = &runs(directory.path())[0];
+    assert_eq!(
+        serde_json::from_slice::<Value>(&fs::read(run.join("report.json")).unwrap()).unwrap(),
+        json_stdout(&output)
+    );
+    assert!(fs::read_to_string(run.join("scan.log"))
+        .unwrap()
+        .contains("missing.rs"));
+}
+
+#[cfg(unix)]
+#[test]
+fn backend_stderr_is_saved_without_verbose_and_after_backend_exit() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    fs::create_dir_all(root.join("backend/lib")).unwrap();
+    fs::write(root.join("analyzer.jar"), "test placeholder").unwrap();
+    fs::write(root.join("source.py"), "print('hello')\n").unwrap();
+    let java = root.join("fake-java");
+    fs::write(
+        &java,
+        "#!/bin/sh\necho 'test backend diagnostic' >&2\nexit 7\n",
+    )
+    .unwrap();
+    fs::set_permissions(&java, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = cli(
+        root,
+        &[
+            "scan",
+            "--backend-dir",
+            "backend",
+            "--plugin",
+            "analyzer.jar",
+            "--java",
+            java.to_str().unwrap(),
+            "source.py",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let run = &runs(root)[0];
+    assert!(fs::read_to_string(run.join("scan.log"))
+        .unwrap()
+        .contains("[sonar stderr] test backend diagnostic"));
+    assert!(run.join("report.json").is_file());
 }

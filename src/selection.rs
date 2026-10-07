@@ -60,7 +60,9 @@ pub fn select(root: &Path, mode: &Selection) -> Result<SelectedFiles> {
                 .hidden(false)
                 .require_git(false)
                 .follow_links(false)
-                .filter_entry(|entry| entry.file_name() != ".git")
+                .filter_entry(|entry| {
+                    entry.file_name() != ".git" && !entry.path().ends_with(".rustmarine/runs")
+                })
                 .build();
             for entry in walker {
                 let entry = entry.context("Cannot enumerate project files")?;
@@ -160,6 +162,12 @@ fn include_git_paths(root: &Path, paths: &[u8], files: &mut BTreeSet<PathBuf>) -
 }
 
 fn include_existing(root: &Path, path: &Path, files: &mut BTreeSet<PathBuf>) -> Result<()> {
+    if path
+        .strip_prefix(root)
+        .is_ok_and(|path| path.starts_with(".rustmarine/runs"))
+    {
+        return Ok(());
+    }
     let canonical = match path.canonicalize() {
         Ok(path) => path,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),

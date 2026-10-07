@@ -1,4 +1,5 @@
 //! LSP4J's Content-Length framed, bidirectional JSON-RPC transport.
+use crate::runs::RunLog;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -60,11 +61,12 @@ pub struct Rpc {
     input: Option<ChildStdin>,
     incoming: mpsc::Receiver<Result<Value>>,
     stderr: Arc<Mutex<String>>,
+    stderr_done: mpsc::Receiver<()>,
     next_id: u64,
 }
 
 impl Rpc {
-    pub fn spawn(command: &mut Command, verbose: bool) -> Result<Self> {
+    pub fn spawn(command: &mut Command, verbose: bool, log: Option<RunLog>) -> Result<Self> {
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -87,11 +89,15 @@ impl Rpc {
         });
         let stderr = Arc::new(Mutex::new(String::new()));
         let captured = Arc::clone(&stderr);
+        let (done, stderr_done) = mpsc::channel();
         thread::spawn(move || {
             for line in BufReader::new(error).lines() {
                 let Ok(line) = line else { break };
                 if verbose {
                     eprintln!("[sonar] {line}");
+                }
+                if let Some(log) = &log {
+                    let _ = log.line(&format!("[sonar stderr] {line}"));
                 }
                 if let Ok(mut captured) = captured.lock() {
                     captured.push_str(&line);
@@ -105,12 +111,14 @@ impl Rpc {
                     }
                 }
             }
+            let _ = done.send(());
         });
         Ok(Self {
             child,
             input: Some(input),
             incoming,
             stderr,
+            stderr_done,
             next_id: 1,
         })
     }
@@ -209,6 +217,11 @@ impl Drop for Rpc {
             let _ = self.child.kill();
         }
         let _ = self.child.wait();
+        // Drain final diagnostics before publishing the run's summary. Bound the wait
+        // in case a descendant process inherited the backend's stderr pipe.
+        let _ = self
+            .stderr_done
+            .recv_timeout(std::time::Duration::from_secs(1));
     }
 }
 
@@ -248,7 +261,7 @@ mod tests {
     fn backend_exit_is_an_operational_error() {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "exit 7"]);
-        let mut rpc = Rpc::spawn(&mut command, false).unwrap();
+        let mut rpc = Rpc::spawn(&mut command, false, None).unwrap();
         let error = rpc
             .pump(
                 Instant::now() + std::time::Duration::from_secs(2),
@@ -263,7 +276,7 @@ mod tests {
     fn unresponsive_backend_respects_deadline() {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "exec sleep 30"]);
-        let mut rpc = Rpc::spawn(&mut command, false).unwrap();
+        let mut rpc = Rpc::spawn(&mut command, false, None).unwrap();
         let error = rpc
             .request(
                 "initialize",

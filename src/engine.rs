@@ -1,5 +1,6 @@
 //! A one-shot client for the same SonarLint backend used by the IDE plugin.
 use crate::rpc::Rpc;
+use crate::runs::RunLog;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -17,6 +18,7 @@ pub struct EngineOptions {
     pub properties: BTreeMap<String, String>,
     pub rules: BTreeMap<String, Value>,
     pub verbose: bool,
+    pub log: Option<RunLog>,
 }
 
 pub struct EngineReport {
@@ -136,7 +138,7 @@ pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Resul
         .arg(backend.join("lib").join("*"))
         .arg("org.sonarsource.sonarlint.core.backend.cli.SonarLintServerCli")
         .current_dir(&work);
-    let mut rpc = Rpc::spawn(&mut command, options.verbose)?;
+    let mut rpc = Rpc::spawn(&mut command, options.verbose, options.log.clone())?;
     let deadline = Instant::now()
         .checked_add(options.timeout)
         .context("Backend timeout is too large")?;
@@ -147,6 +149,7 @@ pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Resul
         ready: false,
         skipped: Vec::new(),
         verbose: options.verbose,
+        log: options.log.clone(),
     };
     rpc.request("initialize", json!({
         "clientConstantInfo":{"name":"Rustmarine","userAgent":concat!("rustmarine/",env!("CARGO_PKG_VERSION"))},
@@ -160,7 +163,7 @@ pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Resul
         "standaloneRuleConfigByKey":options.rules,"isFocusOnNewCode":false,
         "languageSpecificRequirements":{"jsTsRequirements":{"clientNodeJsPath":options.node,"bundlePath":bridge},"omnisharpDownloadEnabled":false},
         "automaticAnalysisEnabled":false,"telemetryMigration":null,
-        "logLevel":if options.verbose {"DEBUG"} else {"WARN"}
+        "logLevel":if options.verbose {"DEBUG"} else if options.log.is_some() {"INFO"} else {"WARN"}
     }), deadline, &mut |method, params| callbacks.handle(method, params))?;
     rpc.notify("configuration/didAddConfigurationScopes", json!({"addedScopes":[{
         "id":SCOPE,"parentId":null,"bindable":false,
@@ -243,12 +246,16 @@ struct Callbacks<'a> {
     ready: bool,
     skipped: Vec<String>,
     verbose: bool,
+    log: Option<RunLog>,
 }
 
 impl Callbacks<'_> {
     fn handle(&mut self, method: &str, params: &Value) -> Result<Value> {
         if self.verbose && method != "log" {
             eprintln!("[sonar rpc] {method}");
+            if let Some(log) = &self.log {
+                log.line(&format!("[sonar rpc] {method}"))?;
+            }
         }
         match method {
             "listFiles" => Ok(json!({"files":self.files})),
@@ -278,8 +285,16 @@ impl Callbacks<'_> {
                 Ok(Value::Null)
             }
             "log" => {
-                if self.verbose || params.get("level").and_then(Value::as_str) == Some("ERROR") {
-                    if let Some(message) = params.get("message").and_then(Value::as_str) {
+                if let Some(message) = params.get("message").and_then(Value::as_str) {
+                    if let Some(log) = &self.log {
+                        let level = params
+                            .get("level")
+                            .and_then(Value::as_str)
+                            .unwrap_or("INFO");
+                        log.line(&format!("[sonar {level}] {message}"))?;
+                    }
+                    if self.verbose || params.get("level").and_then(Value::as_str) == Some("ERROR")
+                    {
                         eprintln!("[sonar] {message}");
                     }
                 }
@@ -326,6 +341,7 @@ mod tests {
             ready: false,
             skipped: vec![],
             verbose: false,
+            log: None,
         };
         callbacks
             .handle(
@@ -360,6 +376,7 @@ mod tests {
             ready: false,
             skipped: vec![],
             verbose: false,
+            log: None,
         };
         callbacks
             .handle(

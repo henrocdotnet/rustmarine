@@ -2,6 +2,7 @@ mod config;
 mod engine;
 mod output;
 mod rpc;
+mod runs;
 mod runtime;
 mod selection;
 
@@ -137,6 +138,9 @@ struct ScanArgs {
     /// Print engine diagnostics to stderr
     #[arg(long)]
     verbose: bool,
+    /// Do not save the report and log under <root>/.rustmarine/runs/
+    #[arg(long)]
+    no_save: bool,
 }
 
 #[derive(Args)]
@@ -260,6 +264,7 @@ fn runtime_options(
         properties: analysis_properties,
         rules,
         verbose,
+        log: None,
     })
 }
 
@@ -317,6 +322,45 @@ fn java_major(version: &str) -> Option<u32> {
 }
 
 fn scan(args: &ScanArgs) -> Result<u8> {
+    let saved = if args.no_save {
+        None
+    } else {
+        Some(runs::RunArtifacts::create(&args.selection.root)?)
+    };
+    let result = (|| {
+        if let Some(run) = &saved {
+            run.log.line(&format!(
+                "Scan started at {}",
+                chrono::Local::now().to_rfc3339()
+            ))?;
+            run.log
+                .line(&format!("Project: {}", args.selection.root.display()))?;
+        }
+        let (report, code) = scan_report(args, saved.as_ref().map(|run| run.log.clone()))?;
+        let rendered = output::render(&report, args.format)?;
+        if let Some(run) = &saved {
+            run.save_report(args.format, &rendered)?;
+            run.log.line(&format!(
+                "Scan completed: {} findings, {} submitted files, {} failed files, {} skipped files; exit {code}",
+                report.findings.len(), report.scanned_files.len(), report.failed_files.len(), report.skipped_files.len()
+            ))?;
+            run.log.finish()?;
+        }
+        write_stdout(&rendered)?;
+        Ok(code)
+    })();
+    if let (Some(run), Err(error)) = (&saved, &result) {
+        run.save_error(error).with_context(|| {
+            format!(
+                "Cannot save failed scan in {} (scan error: {error:#})",
+                run.dir.display()
+            )
+        })?;
+    }
+    result
+}
+
+fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport, u8)> {
     let selected = args.selection.select()?;
     validate_report_paths(&selected)?;
     let config = Config::load(&selected.root, args.runtime.config.as_deref())?;
@@ -334,13 +378,14 @@ fn scan(args: &ScanArgs) -> Result<u8> {
         skipped_files: BTreeMap::new(),
     };
     if !selected.files.is_empty() {
-        let options = runtime_options(
+        let mut options = runtime_options(
             &args.runtime,
             config,
             args.timeout,
             args.verbose,
             &args.properties,
         )?;
+        options.log = log;
         let result = engine::analyze(&options, &selected.root, &selected.files)?;
         report.findings = output::normalize(&selected.root, result.findings)?;
         report.failed_files = result
@@ -374,14 +419,14 @@ fn scan(args: &ScanArgs) -> Result<u8> {
                 .any(|impact| matches!(impact.to_uppercase().as_str(), "HIGH" | "BLOCKER"))
         }),
     };
-    write_stdout(&output::render(&report, args.format)?)?;
-    Ok(if failed {
+    let code = if failed {
         2
     } else if findings_failed {
         1
     } else {
         0
-    })
+    };
+    Ok((report, code))
 }
 
 fn run(cli: &Cli) -> Result<u8> {

@@ -88,9 +88,14 @@ rustmarine scan --staged --format text
 rustmarine scan --timeout 120 --verbose
 rustmarine scan --fail-on high
 rustmarine scan --fail-on none --format text
+rustmarine scan --no-save
 ```
 
 `--fail-on high` fails for CRITICAL/BLOCKER severity or HIGH/BLOCKER impacts. It does not remove lower-severity findings from the report. `--fail-on none` suppresses the findings exit status, while analysis failures still exit 2. Engine diagnostics go to stderr. Standard output contains only the selected report.
+
+By default, every scan saves its report and engine log under **`<root>/.rustmarine/runs/YYYYMMDD_HHMMSS/`**, using local time at scan startup. The report matches standard output: `report.json`, `report.txt`, or `report.sarif`, depending on `--format`. `scan.log` records run status and engine diagnostics even without `--verbose`; `--verbose` adds debug diagnostics and echoes them to stderr. Operational failures save `report.json` with the error envelope and record the error in the log. Invalid command-line arguments and an inaccessible project/storage directory can fail before a run is created.
+
+Use **`--no-save`** to keep output on stdout/stderr without creating run files. Timestamp collisions create directories with `_1`, `_2`, and so on rather than overwriting previous runs. Saved runs are excluded from automatic file selection, including Git changes and `--all`; explicit paths still bypass this exclusion. Runs are retained until you delete them. Add `.rustmarine/runs/` to your project's `.gitignore` if you want Git itself to ignore them. Reports and logs remain local and can contain sensitive findings.
 
 | Exit | Meaning |
 | --- | --- |

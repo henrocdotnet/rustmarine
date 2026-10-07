@@ -490,6 +490,7 @@ fn smoke(runtime: &Installation) -> Result<()> {
         properties: BTreeMap::new(),
         rules: BTreeMap::new(),
         verbose: false,
+        log: None,
     };
     let report = engine::analyze(&options, &root, &files)
         .context("Managed runtime analysis self-test failed")?;
