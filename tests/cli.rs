@@ -68,7 +68,12 @@ fn help_exposes_commands_and_scan_contract() {
     let output = cli(directory.path(), &["--help"]);
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
-    assert!(text.contains("scan") && text.contains("files") && text.contains("doctor"));
+    assert!(
+        text.contains("scan")
+            && text.contains("files")
+            && text.contains("doctor")
+            && text.contains("ignore")
+    );
     assert!(text.contains("Findings exit 1") && text.contains("operational errors exit 2"));
 
     let output = cli(directory.path(), &["scan", "--help"]);

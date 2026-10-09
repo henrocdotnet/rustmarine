@@ -7,7 +7,7 @@ COVERAGE_VERSION := 0.9.1
 COVERAGE_DIR ?= target/coverage
 COVERAGE_CARGO = $(CARGO) +$(COVERAGE_TOOLCHAIN) llvm-cov
 
-.PHONY: help build debug install test fmt fmt-check lint check run init doctor scan smoke smoke-managed coverage-setup coverage coverage-smoke coverage-report clean
+.PHONY: help build debug install test fmt fmt-check lint check run init doctor scan ignore smoke smoke-managed coverage-setup coverage coverage-smoke coverage-report clean
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*## "; print "Rustmarine targets:"} /^[a-zA-Z][a-zA-Z0-9_-]*:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,6 +46,9 @@ doctor: ## Check the analysis runtime; accepts ARGS
 
 scan: ## Scan source changes; accepts ARGS
 	$(CARGO) run --release --locked -- scan $(ARGS)
+
+ignore: ## Disable a rule in project configuration; accepts ARGS
+	$(CARGO) run --release --locked -- ignore $(ARGS)
 
 smoke: ## Run the real-engine smoke test using RUSTMARINE_TEST_* settings
 	$(CARGO) test --locked --test engine_smoke -- --ignored

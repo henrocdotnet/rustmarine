@@ -130,6 +130,17 @@ parameters = { format = "^[a-z][a-zA-Z0-9]*$" }
 
 A repeatable `--property KEY=VALUE` overrides configured analysis properties. Java, Kotlin, and other analyzers may need compiler outputs, dependencies, or language-specific properties to provide full semantic analysis. Properties such as `sonar.java.binaries` that refer to project files should use absolute paths when required by the analyzer; the backend work directory is separate from the project.
 
+To disable a rule using its full key from a finding:
+
+```sh
+rustmarine ignore typescript:S1135 --root /path/to/project
+rustmarine ignore typescript:S1134 --root /path/to/project
+```
+
+`ignore` creates `.rustmarine/config.toml` when needed and sets `[rules."<rule-key>"].active = false`. It preserves existing comments, rule parameters, other settings, and file permissions, and saves changes atomically. Repeating an already disabled rule leaves the file untouched. Use `--config /path/to/config.toml` to update another configuration; relative `--config` paths are resolved from the current directory, as with scans. Malformed or unsupported configuration is rejected before writing. The command works without a Sonar runtime and validates the key's `repository:rule` format; available rule keys come from analyzer findings. TypeScript and JavaScript rule keys are separate.
+
+Success returns JSON with `schema_version`, the absolute `config_path`, `rule_key`, `active: false`, and `changed`. Exit status is 0, including when the rule was already disabled; operational errors return the JSON `error.message` envelope and exit 2. Argument errors use Clap's stderr diagnostics. The setting takes effect on subsequent scans. From the checkout, `make ignore ARGS='typescript:S1135 --root /path/to/project'` runs the same command.
+
 ### Test and production files
 
 Rustmarine submits both production and test files, setting Sonar's `isTest` flag explicitly. By default, tests include Go `*_test.go`, Python `test_*.py` and `*_test.py`, JavaScript/TypeScript `*.test.*` and `*.spec.*` (including JSX/TSX and module variants), and files inside directories named `test`, `tests`, `__tests__`, or `e2e`. Other files are classified as production. This classification lets each analyzer apply its test/production rule scopes; it does not exclude test files or guarantee that every analyzer checks tests with every rule.

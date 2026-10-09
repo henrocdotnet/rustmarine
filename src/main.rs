@@ -46,6 +46,8 @@ enum Commands {
     Files(FileArgs),
     /// Check runtime paths and Java availability
     Doctor(DoctorArgs),
+    /// Disable a rule in the project configuration
+    Ignore(IgnoreArgs),
 }
 
 #[derive(Args)]
@@ -153,6 +155,19 @@ struct DoctorArgs {
     root: PathBuf,
     #[command(flatten)]
     runtime: RuntimeArgs,
+}
+
+#[derive(Args)]
+struct IgnoreArgs {
+    /// Full rule key from a finding, for example typescript:S1135
+    #[arg(value_parser = config::parse_rule_key)]
+    rule: String,
+    /// Project directory; defaults to current directory
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// Configuration file to update (default: <root>/.rustmarine/config.toml)
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -464,6 +479,18 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(0)
         }
         Commands::Scan(args) => scan(args),
+        Commands::Ignore(args) => {
+            let (path, changed) =
+                config::ignore_rule(&args.root, args.config.as_deref(), &args.rule)?;
+            write_stdout(&serde_json::to_string_pretty(&serde_json::json!({
+                "schema_version": 1,
+                "config_path": path,
+                "rule_key": args.rule,
+                "active": false,
+                "changed": changed,
+            }))?)?;
+            Ok(0)
+        }
         Commands::Files(args) => {
             let selected = args.select()?;
             validate_report_paths(&selected)?;
@@ -514,7 +541,8 @@ fn main() -> ExitCode {
     match run(&cli) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
-            if matches!(&cli.command, Commands::Scan(args) if matches!(args.format, OutputFormat::Json))
+            if matches!(&cli.command, Commands::Ignore(_))
+                || matches!(&cli.command, Commands::Scan(args) if matches!(args.format, OutputFormat::Json))
             {
                 let _ = write_stdout(&serde_json::json!({"schema_version":1,"error":{"message":format!("{error:#}")}}).to_string());
             } else {

@@ -57,11 +57,12 @@ fn real_engine_reports_findings_and_honors_configuration() {
         .iter()
         .any(|finding| finding["rule_key"] == "java:S4973"));
 
-    fs::write(
-        project.path().join(".rustmarine/config.toml"),
-        "[rules.\"java:S4973\"]\nactive = false\n",
-    )
-    .unwrap();
+    let ignored = Command::new(env!("CARGO_BIN_EXE_rustmarine"))
+        .args(["ignore", "java:S4973", "--root"])
+        .arg(project.path())
+        .output()
+        .unwrap();
+    assert_eq!(ignored.status.code(), Some(0), "{ignored:?}");
     let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
