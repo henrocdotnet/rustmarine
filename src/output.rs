@@ -17,6 +17,8 @@ pub struct ScanReport {
     pub schema_version: u32,
     pub root: String,
     pub scanned_files: Vec<String>,
+    /// Classified test files, a sorted subset of scanned_files.
+    pub test_files: Vec<String>,
     pub findings: Vec<Finding>,
     pub failed_files: Vec<String>,
     pub skipped_files: BTreeMap<String, String>,
@@ -264,9 +266,11 @@ pub fn render(report: &ScanReport, format: OutputFormat) -> Result<String> {
                 ));
             }
             out.push_str(&format!(
-                "{} finding(s) in {} scanned file(s)\n",
+                "{} finding(s) in {} scanned file(s) ({} production, {} test)\n",
                 report.findings.len(),
-                report.scanned_files.len()
+                report.scanned_files.len(),
+                report.scanned_files.len() - report.test_files.len(),
+                report.test_files.len()
             ));
             for path in &report.failed_files {
                 out.push_str(&format!("Analysis failed: {path}\n"));
@@ -332,6 +336,7 @@ fn sarif(report: &ScanReport) -> Value {
             "tool": {"driver": {"name": "rustmarine", "version": env!("CARGO_PKG_VERSION"),
                 "rules": rules.iter().map(|rule| json!({"id": rule})).collect::<Vec<_>>() }},
             "columnKind": "utf16CodeUnits",
+            "properties": {"testFiles": report.test_files},
             "originalUriBaseIds": {"PROJECTROOT": {"uri": root_uri(&report.root)}},
             "results": results,
             "invocations": [{"executionSuccessful": report.failed_files.is_empty() && !(report.scanned_files.is_empty() && !report.skipped_files.is_empty()), "toolExecutionNotifications": notifications}],
@@ -386,6 +391,7 @@ fn sarif_level(finding: &Finding) -> &'static str {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
@@ -402,6 +408,7 @@ mod tests {
             schema_version: 1,
             root: "/project".into(),
             scanned_files: vec!["src/foo.py".into()],
+            test_files: vec![],
             findings,
             failed_files: vec![],
             skipped_files: BTreeMap::new(),
@@ -428,6 +435,24 @@ mod tests {
         assert!(render(&report(findings), OutputFormat::Text)
             .unwrap()
             .starts_with("src/foo.py:2:5: MINOR [python:S1481]"));
+    }
+
+    #[test]
+    fn exports_file_classification_in_json_text_and_sarif() {
+        let mut report = report(vec![]);
+        report.test_files = report.scanned_files.clone();
+        let json: Value =
+            serde_json::from_str(&render(&report, OutputFormat::Json).unwrap()).unwrap();
+        assert_eq!(json["test_files"], json!(["src/foo.py"]));
+        let sarif: Value =
+            serde_json::from_str(&render(&report, OutputFormat::Sarif).unwrap()).unwrap();
+        assert_eq!(
+            sarif["runs"][0]["properties"]["testFiles"],
+            json!(["src/foo.py"])
+        );
+        assert!(render(&report, OutputFormat::Text)
+            .unwrap()
+            .contains("(0 production, 1 test)"));
     }
 
     #[test]

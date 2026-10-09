@@ -136,6 +136,7 @@ fn clean_scan_succeeds_without_configuring_a_runtime() {
             "schema_version": 1,
             "root": directory.path().canonicalize().unwrap(),
             "scanned_files": [],
+            "test_files": [],
             "findings": [],
             "failed_files": [],
             "skipped_files": {},
@@ -158,6 +159,34 @@ fn nonempty_scan_without_runtime_returns_machine_readable_error() {
         "{message}"
     );
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn invalid_classification_globs_are_saved_configuration_errors_even_for_empty_scans() {
+    let directory = clean_repository();
+    let configuration = tempfile::NamedTempFile::new().unwrap();
+    fs::write(
+        configuration.path(),
+        "[file_classification]\ntest_patterns = ['[']\n",
+    )
+    .unwrap();
+    let output = cli(
+        directory.path(),
+        &["scan", "--config", configuration.path().to_str().unwrap()],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let report = json_stdout(&output);
+    assert!(report["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("file_classification.test_patterns"));
+    assert_eq!(
+        serde_json::from_slice::<Value>(
+            &fs::read(runs(directory.path())[0].join("report.json")).unwrap()
+        )
+        .unwrap(),
+        report
+    );
 }
 
 #[test]

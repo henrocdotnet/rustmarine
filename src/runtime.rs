@@ -492,7 +492,8 @@ fn smoke(runtime: &Installation) -> Result<()> {
         verbose: false,
         log: None,
     };
-    let report = engine::analyze(&options, &root, &files)
+    let classifier = crate::classification::FileClassifier::new(&Default::default())?;
+    let report = engine::analyze(&options, &root, &files, &classifier)
         .context("Managed runtime analysis self-test failed")?;
     if !report.failed_files.is_empty() || !report.skipped_files.is_empty() {
         bail!(
@@ -641,6 +642,7 @@ pub fn init(explicit: Option<&Path>, offline: bool, repair: bool) -> Result<Inst
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use std::io::Cursor;

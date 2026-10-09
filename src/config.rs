@@ -1,3 +1,4 @@
+use crate::classification::FileClassificationConfig;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::{
@@ -9,6 +10,8 @@ use std::{
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub file_classification: FileClassificationConfig,
     pub runtime_dir: Option<PathBuf>,
     pub backend_dir: Option<PathBuf>,
     pub analyzer_dir: Option<PathBuf>,
@@ -34,7 +37,7 @@ impl Config {
     pub fn load(root: &Path, explicit: Option<&Path>) -> Result<Self> {
         let path = explicit
             .map(Path::to_path_buf)
-            .unwrap_or_else(|| root.join(".rustmarine.toml"));
+            .unwrap_or_else(|| root.join(".rustmarine/config.toml"));
         if !path.exists() && explicit.is_none() {
             return Ok(Self::default());
         }
@@ -97,25 +100,46 @@ pub fn plugins(directory: Option<&Path>, explicit: &[PathBuf]) -> Result<Vec<Pat
     result.sort();
     result.dedup();
     if result.is_empty() {
-        bail!("No Sonar analyzer JARs configured. Set --analyzer-dir, --plugin, or plugins in .rustmarine.toml (see rust-cli/README.md).");
+        bail!("No Sonar analyzer JARs configured. Set --analyzer-dir, --plugin, or plugins in .rustmarine/config.toml (see rust-cli/README.md).");
     }
     Ok(result)
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     #[test]
+    fn file_classification_defaults_and_overrides_deserialize_consistently() {
+        assert!(Config::default().file_classification.use_defaults);
+        let empty: Config = toml::from_str("").unwrap();
+        assert!(empty.file_classification.use_defaults);
+        let config: Config = toml::from_str(
+            "[file_classification]\ntest_patterns = ['checks/**']\nmain_patterns = ['tests/production/**']\n",
+        ).unwrap();
+        assert!(config.file_classification.use_defaults);
+        assert_eq!(config.file_classification.test_patterns, ["checks/**"]);
+        let config: Config =
+            toml::from_str("[file_classification]\nuse_defaults = false\n").unwrap();
+        assert!(!config.file_classification.use_defaults);
+        assert!(toml::from_str::<Config>("[file_classification]\ntest_paterns = []\n").is_err());
+    }
+    #[test]
     fn strict_config_and_relative_paths() {
         let temp = tempfile::tempdir().unwrap();
-        fs::write(temp.path().join(".rustmarine.toml"), "backend_dir = 'runtime/sloop'\nplugins = ['runtime/sonar.jar']\n[rules.\"java:S100\"]\nactive = false\n").unwrap();
+        fs::create_dir(temp.path().join(".rustmarine")).unwrap();
+        let path = temp.path().join(".rustmarine/config.toml");
+        fs::write(&path, "backend_dir = 'runtime/sloop'\nplugins = ['runtime/sonar.jar']\n[rules.\"java:S100\"]\nactive = false\n").unwrap();
         let config = Config::load(temp.path(), None).unwrap();
         assert_eq!(
             config.backend_dir.unwrap(),
-            temp.path().canonicalize().unwrap().join("runtime/sloop")
+            temp.path()
+                .canonicalize()
+                .unwrap()
+                .join(".rustmarine/runtime/sloop")
         );
         assert!(!config.rules["java:S100"].active);
-        fs::write(temp.path().join(".rustmarine.toml"), "typo = true").unwrap();
+        fs::write(&path, "typo = true").unwrap();
         assert!(Config::load(temp.path(), None).is_err());
     }
 }

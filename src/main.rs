@@ -1,3 +1,6 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
+mod classification;
 mod config;
 mod engine;
 mod output;
@@ -8,6 +11,7 @@ mod selection;
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use classification::FileClassifier;
 use config::Config;
 use output::{OutputFormat, ScanReport};
 use selection::{SelectedFiles, Selection};
@@ -97,7 +101,7 @@ struct RuntimeArgs {
     /// Managed runtime directory created by init
     #[arg(long, env = "RUSTMARINE_RUNTIME_DIR")]
     runtime_dir: Option<PathBuf>,
-    /// Configuration file (default: <root>/.rustmarine.toml)
+    /// Configuration file (default: <root>/.rustmarine/config.toml)
     #[arg(long)]
     config: Option<PathBuf>,
     /// Extracted SLOOP directory containing lib/
@@ -364,6 +368,7 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
     let selected = args.selection.select()?;
     validate_report_paths(&selected)?;
     let config = Config::load(&selected.root, args.runtime.config.as_deref())?;
+    let classifier = FileClassifier::new(&config.file_classification)?;
     let scanned_files = selected
         .files
         .iter()
@@ -373,10 +378,28 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
         schema_version: 1,
         root: selected.root.to_string_lossy().into_owned(),
         scanned_files,
+        test_files: selected
+            .files
+            .iter()
+            .filter(|file| {
+                classifier.is_test(
+                    file.strip_prefix(&selected.root)
+                        .expect("selected file under root"),
+                )
+            })
+            .map(|file| relative(&selected.root, file))
+            .collect(),
         findings: vec![],
         failed_files: vec![],
         skipped_files: BTreeMap::new(),
     };
+    if let Some(log) = &log {
+        log.line(&format!(
+            "File classification: {} production, {} test",
+            report.scanned_files.len() - report.test_files.len(),
+            report.test_files.len()
+        ))?;
+    }
     if !selected.files.is_empty() {
         let mut options = runtime_options(
             &args.runtime,
@@ -386,7 +409,7 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
             &args.properties,
         )?;
         options.log = log;
-        let result = engine::analyze(&options, &selected.root, &selected.files)?;
+        let result = engine::analyze(&options, &selected.root, &selected.files, &classifier)?;
         report.findings = output::normalize(&selected.root, result.findings)?;
         report.failed_files = result
             .failed_files
@@ -402,6 +425,9 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
             .collect();
         report
             .scanned_files
+            .retain(|file| !report.skipped_files.contains_key(file));
+        report
+            .test_files
             .retain(|file| !report.skipped_files.contains_key(file));
     }
     let failed = !report.failed_files.is_empty()
@@ -457,6 +483,7 @@ fn run(cli: &Cli) -> Result<u8> {
                 .canonicalize()
                 .context("Cannot find project root")?;
             let config = Config::load(&root, args.runtime.config.as_deref())?;
+            FileClassifier::new(&config.file_classification)?;
             let options = runtime_options(&args.runtime, config, 30, false, &[])?;
             let java = Command::new(&options.java)
                 .arg("-version")
@@ -499,6 +526,7 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     #[test]

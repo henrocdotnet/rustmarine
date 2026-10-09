@@ -203,6 +203,7 @@ fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
     use std::fs;

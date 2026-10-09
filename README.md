@@ -110,7 +110,7 @@ A scan with no selected files succeeds without starting or configuring the engin
 
 ## Project configuration
 
-Put `.rustmarine.toml` at the project root, or use `--config /path/to/config.toml`. Unknown configuration keys are rejected. Directory/JAR paths are relative to the configuration file. Bare Java/Node executable names use `PATH`; paths containing directories are resolved relative to the configuration file. CLI and environment runtime options take precedence over configuration, which takes precedence over managed defaults. Individual `--plugin` values are added to configured plugins.
+Put `config.toml` in the project's `.rustmarine/` directory, or use `--config /path/to/config.toml`. Unknown configuration keys are rejected. Directory/JAR paths are relative to the configuration file (the `.rustmarine/` directory by default). Bare Java/Node executable names use `PATH`; paths containing directories are resolved relative to the configuration file. CLI and environment runtime options take precedence over configuration, which takes precedence over managed defaults. Individual `--plugin` values are added to configured plugins.
 
 ```toml
 # Optional: omit runtime paths to use the environment created by init.
@@ -130,6 +130,26 @@ parameters = { format = "^[a-z][a-zA-Z0-9]*$" }
 
 A repeatable `--property KEY=VALUE` overrides configured analysis properties. Java, Kotlin, and other analyzers may need compiler outputs, dependencies, or language-specific properties to provide full semantic analysis. Properties such as `sonar.java.binaries` that refer to project files should use absolute paths when required by the analyzer; the backend work directory is separate from the project.
 
+### Test and production files
+
+Rustmarine submits both production and test files, setting Sonar's `isTest` flag explicitly. By default, tests include Go `*_test.go`, Python `test_*.py` and `*_test.py`, JavaScript/TypeScript `*.test.*` and `*.spec.*` (including JSX/TSX and module variants), and files inside directories named `test`, `tests`, `__tests__`, or `e2e`. Other files are classified as production. This classification lets each analyzer apply its test/production rule scopes; it does not exclude test files or guarantee that every analyzer checks tests with every rule.
+
+Add project-specific test helpers and production exceptions in `.rustmarine/config.toml`:
+
+```toml
+[file_classification]
+# Custom tests extend the built-in conventions.
+test_patterns = ["ui/src/testSession.ts", "integration/**"]
+# Production overrides take precedence over all test patterns.
+main_patterns = ["tests/production/**"]
+# Set false to use only your custom patterns (or classify everything as production).
+use_defaults = true
+```
+
+Patterns are case-sensitive globs against paths relative to the **scan root**, including when using `--config` elsewhere. Use `/` as the separator; `*` matches within one path component and `**` spans directories. To match a basename at any depth, use a pattern such as `**/*_test.go`. Invalid globs are configuration errors. Files matching neither test nor production patterns are production files; production patterns never remove files from the scan.
+
+JSON reports include `test_files`, a sorted subset of `scanned_files`; the other submitted files are production files. The text summary includes production/test counts, SARIF stores `testFiles` in the run's `properties`, and saved logs record the submitted classification counts. Classification describes the client's inputs, not an analyzer coverage guarantee. Analyzers may also use their own test heuristics: for example, Python can still treat a conventional test filename as test code after a production override.
+
 The standalone language set enabled by this client is: HTML, XML, JavaScript, TypeScript, CSS, Kotlin, PHP, Python, Ruby, YAML/IaC, Java, Go, and secrets detection. Actual rules depend on the analyzer JARs supplied and their requirements. C/C++ and C# need additional IDE/build context and are not enabled by this initial client. Rust language analysis is not enabled in this standalone language set; a Rust implementation of the client does not add Rust analysis rules.
 
 `scanned_files` records files submitted for analysis, after known backend exclusions. It is not a per-language coverage guarantee: SLOOP does not expose which analyzer actually inspected each file in the one-shot result. An unsupported file can produce no language findings; secrets detection may still inspect it. Backend exclusions are reported separately in `skipped_files`, and failed analyses in `failed_files`. Analyzer loading failures cause an operational error.
@@ -140,6 +160,7 @@ Successful JSON reports use `schema_version: 1` with:
 
 - `root`: canonical absolute project directory.
 - `scanned_files`: sorted project-relative paths submitted for analysis.
+- `test_files`: sorted subset of submitted files classified as tests; remaining files are production.
 - `findings`: sorted issues and hotspots, with `path`, `rule_key`, `message`, `severity`, `type`, `impacts`, `range`, `flows`, and `details`.
 - `failed_files`: project-relative files that failed analysis.
 - `skipped_files`: project-relative paths mapped to backend exclusion reasons.
@@ -158,7 +179,7 @@ make fmt        # Apply Rust formatting
 
 `make check` leaves source formatting unchanged. Use `make run ARGS='--help'` to run the CLI, or `make scan ARGS='--root /path/to/project --format text'` to scan. `make init` and `make doctor` run their corresponding commands; each accepts `ARGS`. Set `CARGO=/path/to/cargo` to override the Cargo executable.
 
-The tests cover Git selection, configuration, framing, finding normalization, output formats, and command behavior. A separate ignored smoke test verifies real Java findings, exit thresholds, and rule deactivation with an external runtime:
+The tests cover Git selection, configuration, framing, finding normalization, output formats, and command behavior. Separate ignored smoke tests verify real Java findings, exit thresholds, rule deactivation, and Python test/production classification with an external runtime:
 
 ```sh
 RUSTMARINE_TEST_BACKEND_DIR="$RUSTMARINE_BACKEND_DIR" \
@@ -174,3 +195,27 @@ A standalone managed-runtime smoke test can download a complete environment and 
 ```sh
 make smoke-managed
 ```
+
+### Coverage reports
+
+Coverage uses [cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) with branch instrumentation. The Makefile pins the reporter to `0.9.1` and the coverage compiler to `nightly-2026-10-09`. Normal builds and checks continue to use your default Rust toolchain.
+
+```sh
+make coverage-setup  # Install the pinned compiler, LLVM tools, and cargo-llvm-cov
+make coverage        # Run regular tests and generate reports
+```
+
+Reports are saved under `target/coverage/`, which is already ignored by Git:
+
+- `summary.txt`: per-file and total line, region, function, and branch coverage.
+- `html/index.html`: browsable source with uncovered lines and branch counts.
+- `coverage.json`: full LLVM coverage data for agents and other tools.
+- `lcov.info`: coverage data for compatible editors and CI integrations.
+
+Coverage measures Rustmarine's production Rust code, including instrumented CLI subprocesses launched by integration tests. Inline unit-test modules are excluded with `coverage(off)` during coverage builds; integration-test source and dependencies are excluded by cargo-llvm-cov's defaults. The Java/Node analyzers and scanned projects are outside these totals. Branch coverage uses unstable compiler instrumentation and may not represent every language construct; it is a guide for finding missing tests, not proof of correctness.
+
+`make coverage` skips the opt-in engine and managed-runtime tests. To include the Java and Python engine tests, provide the same `RUSTMARINE_TEST_BACKEND_DIR`, `RUSTMARINE_TEST_ANALYZER_DIR`, and `RUSTMARINE_TEST_JAVA` settings used by `make smoke`, then run `make coverage-smoke`. This runs regular tests and engine tests together and saves combined reports under `target/coverage-smoke/`, preserving the regular-test reports. The managed-runtime download/repair smoke test remains separate.
+
+Use `make coverage-report` to regenerate formats from the most recently collected profiles without rerunning tests. After `coverage-smoke`, use `make coverage-report COVERAGE_DIR=target/coverage-smoke` to keep the regular-test reports intact. Profiles are shared between coverage targets and cleared at the start of each run, so run them sequentially. Pass `COVERAGE_DIR=/path/to/reports` to Make to choose an output directory or `COVERAGE_TOOLCHAIN=nightly-YYYY-MM-DD` to try a different nightly. Coverage tools are installed only by `coverage-setup`; the reporting targets do not install missing prerequisites.
+
+The standalone Rustmarine repository's `.github/workflows/coverage.yml` runs regular-test branch coverage only when manually triggered through GitHub Actions or `gh workflow run coverage.yml`, then uploads the report directory as an artifact. Pushes and pull requests do not trigger it. This workflow belongs to the nested `rust-cli` repository; GitHub will discover it when that repository is checked out as the repository root, and manual dispatch requires the workflow to exist on the default branch. No coverage threshold is enforced yet.

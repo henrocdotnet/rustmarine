@@ -1,4 +1,5 @@
 //! A one-shot client for the same SonarLint backend used by the IDE plugin.
+use crate::classification::FileClassifier;
 use crate::rpc::Rpc;
 use crate::runs::RunLog;
 use anyhow::{bail, Context, Result};
@@ -56,7 +57,12 @@ fn file_uri(path: &Path) -> Result<String> {
         .map_err(|()| anyhow::anyhow!("Cannot encode file URI for {}", path.display()))
 }
 
-pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Result<EngineReport> {
+pub fn analyze(
+    options: &EngineOptions,
+    root: &Path,
+    files: &[PathBuf],
+    classifier: &FileClassifier,
+) -> Result<EngineReport> {
     if options.timeout.is_zero() {
         bail!("Backend timeout must be greater than zero");
     }
@@ -104,7 +110,7 @@ pub fn analyze(options: &EngineOptions, root: &Path, files: &[PathBuf]) -> Resul
         uris.push(uri.clone());
         dtos.push(json!({
             "uri":uri,"ideRelativePath":relative,"configScopeId":SCOPE,
-            "isTest":null,"charset":"UTF-8","fsPath":path,"content":null,
+            "isTest":classifier.is_test(relative),"charset":"UTF-8","fsPath":path,"content":null,
             "detectedLanguage":null,"isUserDefined":true
         }));
     }
@@ -328,6 +334,7 @@ impl Callbacks<'_> {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
 
