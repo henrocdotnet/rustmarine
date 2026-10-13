@@ -3,6 +3,67 @@ use serde_json::Value;
 use std::{env, fs, process::Command};
 
 #[test]
+#[ignore = "requires a Go analyzer and RUSTMARINE_TEST_BACKEND_DIR, RUSTMARINE_TEST_ANALYZER_DIR, RUSTMARINE_TEST_JAVA"]
+fn real_engine_honors_go_threshold_configuration() {
+    let project = tempfile::tempdir().unwrap();
+    fs::write(
+        project.path().join("complex.go"),
+        "package example\n\nfunc Example(a, b, c, d, e, f bool) int {\n  if a {\n    if b {\n      if c {\n        if d {\n          if e { return 1 }\n        }\n      }\n    }\n  }\n  if f { return 2 }\n  return 0\n}\n",
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_rustmarine"));
+    command
+        .args(["scan", "--root"])
+        .arg(project.path())
+        .args(["complex.go", "--fail-on", "none", "--backend-dir"])
+        .arg(env::var_os("RUSTMARINE_TEST_BACKEND_DIR").expect("RUSTMARINE_TEST_BACKEND_DIR"))
+        .arg("--analyzer-dir")
+        .arg(env::var_os("RUSTMARINE_TEST_ANALYZER_DIR").expect("RUSTMARINE_TEST_ANALYZER_DIR"))
+        .arg("--java")
+        .arg(env::var_os("RUSTMARINE_TEST_JAVA").expect("RUSTMARINE_TEST_JAVA"))
+        .args(["--timeout", "90"]);
+    let scan = |command: &mut Command| {
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(report["failed_files"].as_array().unwrap().is_empty());
+        assert!(report["skipped_files"].as_object().unwrap().is_empty());
+        report["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|finding| finding["rule_key"] == "go:S3776")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let baseline = scan(&mut command);
+    assert_eq!(baseline.len(), 1, "{baseline:?}");
+    for (value, count) in [("20", 0), ("0", 1)] {
+        let output = Command::new(env!("CARGO_BIN_EXE_rustmarine"))
+            .args(["config", "rule", "set", "go:S3776"])
+            .arg(format!("threshold={value}"))
+            .arg("--root")
+            .arg(project.path())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let findings = scan(&mut command);
+        assert_eq!(findings.len(), count, "{findings:?}");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_rustmarine"))
+        .args(["config", "rule", "delete", "go:S3776", "--root"])
+        .arg(project.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        scan(&mut command),
+        baseline,
+        "Deleting an override must restore defaults"
+    );
+}
+
+#[test]
 #[ignore = "requires RUSTMARINE_TEST_BACKEND_DIR, RUSTMARINE_TEST_ANALYZER_DIR and RUSTMARINE_TEST_JAVA"]
 fn real_engine_reports_findings_and_honors_configuration() {
     let project = tempfile::tempdir().unwrap();

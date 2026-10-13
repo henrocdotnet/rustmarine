@@ -26,7 +26,7 @@ pub struct Config {
     pub rules: BTreeMap<String, RuleConfig>,
 }
 
-#[derive(Debug, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleConfig {
     pub active: bool,
@@ -101,48 +101,81 @@ pub fn parse_rule_key(rule: &str) -> std::result::Result<String, String> {
 /// Disable one rule while preserving the rest of the TOML document.
 /// The returned boolean reports whether the configuration was changed.
 pub fn ignore_rule(root: &Path, explicit: Option<&Path>, rule: &str) -> Result<(PathBuf, bool)> {
-    parse_rule_key(rule).map_err(anyhow::Error::msg)?;
-    let root = root.canonicalize().context("Cannot find project root")?;
-    if !root.is_dir() {
-        bail!("Project root is not a directory: {}", root.display());
-    }
-    let path = Config::path(&root, explicit);
-    let mut path = if path.is_absolute() {
-        path
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    let original = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error)
-            if error.kind() == io::ErrorKind::NotFound && fs::symlink_metadata(&path).is_err() =>
-        {
-            String::new()
-        }
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("Cannot read configuration {}", path.display()))
-        }
-    };
-    let config: Config = toml::from_str(&original)
-        .with_context(|| format!("Invalid configuration {}", path.display()))?;
-    let permissions = if path.exists() {
-        // Follow existing symlinks, updating their target rather than replacing the link.
-        path = path.canonicalize()?;
-        Some(fs::metadata(&path)?.permissions())
-    } else {
-        None
-    };
-    if config.rules.get(rule).is_some_and(|rule| !rule.active) {
-        return Ok((path, false));
-    }
+    let update = set_rule(root, explicit, rule, Some(false), &[])?;
+    Ok((update.path, update.changed))
+}
 
-    let mut document: toml_edit::DocumentMut = original.parse()?;
-    let rules = document.as_table_mut().entry("rules").or_insert_with(|| {
-        let mut table = toml_edit::Table::new();
-        table.set_implicit(true);
-        toml_edit::Item::Table(table)
-    });
+pub fn parse_parameter_key(key: &str) -> std::result::Result<String, String> {
+    if !key.is_empty()
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
+    {
+        Ok(key.to_owned())
+    } else {
+        Err("Expected a parameter name such as threshold or Threshold".into())
+    }
+}
+
+pub fn parse_parameter(value: &str) -> std::result::Result<(String, String), String> {
+    let (key, value) = value.split_once('=').ok_or("Expected PARAMETER=VALUE")?;
+    Ok((parse_parameter_key(key)?, value.to_owned()))
+}
+
+pub struct RuleUpdate {
+    pub path: PathBuf,
+    pub changed: bool,
+    pub rule: Option<RuleConfig>,
+}
+
+/// List saved overrides without starting an engine or resolving runtime paths.
+pub fn list_rules(
+    root: &Path,
+    explicit: Option<&Path>,
+) -> Result<(PathBuf, BTreeMap<String, RuleConfig>)> {
+    let document = RuleDocument::open(root, explicit)?;
+    Ok((document.path, document.config.rules))
+}
+
+/// Merge activation and parameter preferences, preserving unspecified settings.
+pub fn set_rule(
+    root: &Path,
+    explicit: Option<&Path>,
+    rule: &str,
+    active: Option<bool>,
+    parameters: &[(String, String)],
+) -> Result<RuleUpdate> {
+    parse_rule_key(rule).map_err(anyhow::Error::msg)?;
+    if active.is_none() && parameters.is_empty() {
+        bail!("Provide --active true|false or at least one PARAMETER=VALUE");
+    }
+    let mut keys = std::collections::BTreeSet::new();
+    for (key, _) in parameters {
+        parse_parameter_key(key).map_err(anyhow::Error::msg)?;
+        if !keys.insert(key) {
+            bail!("Parameter specified more than once: {key}");
+        }
+    }
+    let mut document = RuleDocument::open(root, explicit)?;
+    let existing = document.config.rules.get(rule);
+    let activation = active.unwrap_or_else(|| existing.is_none_or(|rule| rule.active));
+    if existing.is_some_and(|rule| {
+        rule.active == activation
+            && parameters
+                .iter()
+                .all(|(key, value)| rule.parameters.get(key) == Some(value))
+    }) {
+        return Ok(document.result(rule, false));
+    }
+    let rules = document
+        .document
+        .as_table_mut()
+        .entry("rules")
+        .or_insert_with(|| {
+            let mut table = toml_edit::Table::new();
+            table.set_implicit(true);
+            toml_edit::Item::Table(table)
+        });
     let new_rule = if rules.is_inline_table() {
         toml_edit::value(toml_edit::InlineTable::new())
     } else {
@@ -153,35 +186,159 @@ pub fn ignore_rule(root: &Path, explicit: Option<&Path>, rule: &str) -> Result<(
         .context("Rules must be a table")?
         .entry(rule)
         .or_insert(new_rule);
-    let active = rule_config
+    let rule_config = rule_config
         .as_table_like_mut()
-        .context("Rule configuration must be a table")?
+        .context("Rule configuration must be a table")?;
+    let active_item = rule_config
         .entry("active")
-        .or_insert(toml_edit::value(false));
-    let decor = active.as_value().map(|value| value.decor().clone());
-    *active = toml_edit::value(false);
-    if let Some(decor) = decor {
-        *active
-            .as_value_mut()
-            .context("Active must be a value")?
-            .decor_mut() = decor;
+        .or_insert(toml_edit::value(activation));
+    if active.is_some() {
+        set_value(active_item, activation);
     }
-    let updated = document.to_string();
-    // Validate the edited document before creating directories or replacing any file.
-    toml::from_str::<Config>(&updated).context("Cannot serialize updated configuration")?;
-    let parent = path.parent().context("Configuration has no parent")?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("Cannot create configuration directory {}", parent.display()))?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary.write_all(updated.as_bytes())?;
-    if let Some(permissions) = permissions {
-        temporary.as_file().set_permissions(permissions)?;
+    if !parameters.is_empty() {
+        let parameter_table = rule_config
+            .entry("parameters")
+            .or_insert_with(|| toml_edit::value(toml_edit::InlineTable::new()));
+        let parameter_table = parameter_table
+            .as_table_like_mut()
+            .context("Rule parameters must be a table")?;
+        for (key, value) in parameters {
+            let item = parameter_table
+                .entry(key)
+                .or_insert(toml_edit::value(value.clone()));
+            set_value(item, value.clone());
+        }
     }
-    temporary.as_file().sync_all()?;
-    temporary
-        .persist(&path)
-        .with_context(|| format!("Cannot save configuration {}", path.display()))?;
-    Ok((path.canonicalize()?, true))
+    document.save(rule)
+}
+
+/// Remove an override, or selected parameters so the analyzer can use their defaults.
+pub fn delete_rule(
+    root: &Path,
+    explicit: Option<&Path>,
+    rule: &str,
+    parameters: &[String],
+) -> Result<RuleUpdate> {
+    parse_rule_key(rule).map_err(anyhow::Error::msg)?;
+    for key in parameters {
+        parse_parameter_key(key).map_err(anyhow::Error::msg)?;
+    }
+    let mut document = RuleDocument::open(root, explicit)?;
+    let Some(existing) = document.config.rules.get(rule) else {
+        return Ok(document.result(rule, false));
+    };
+    if !parameters.is_empty()
+        && parameters
+            .iter()
+            .all(|key| !existing.parameters.contains_key(key))
+    {
+        return Ok(document.result(rule, false));
+    }
+    let rules = document.document["rules"]
+        .as_table_like_mut()
+        .context("Rules must be a table")?;
+    if parameters.is_empty() {
+        rules.remove(rule);
+    } else {
+        let rule_config = rules
+            .get_mut(rule)
+            .context("Rule configuration is missing")?;
+        let parameter_table = rule_config["parameters"]
+            .as_table_like_mut()
+            .context("Rule parameters must be a table")?;
+        for key in parameters {
+            parameter_table.remove(key);
+        }
+    }
+    document.save(rule)
+}
+
+fn set_value(item: &mut toml_edit::Item, value: impl Into<toml_edit::Value>) {
+    let mut value = value.into();
+    if let Some(existing) = item.as_value() {
+        *value.decor_mut() = existing.decor().clone();
+    }
+    *item = toml_edit::Item::Value(value);
+}
+
+struct RuleDocument {
+    path: PathBuf,
+    config: Config,
+    document: toml_edit::DocumentMut,
+    permissions: Option<fs::Permissions>,
+}
+
+impl RuleDocument {
+    fn open(root: &Path, explicit: Option<&Path>) -> Result<Self> {
+        let root = root.canonicalize().context("Cannot find project root")?;
+        if !root.is_dir() {
+            bail!("Project root is not a directory: {}", root.display());
+        }
+        let path = Config::path(&root, explicit);
+        let mut path = if path.is_absolute() {
+            path
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let original = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    && fs::symlink_metadata(&path).is_err() =>
+            {
+                String::new()
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("Cannot read configuration {}", path.display()))
+            }
+        };
+        let config: Config = toml::from_str(&original)
+            .with_context(|| format!("Invalid configuration {}", path.display()))?;
+        let permissions = if path.exists() {
+            // Follow existing symlinks, updating their target rather than replacing the link.
+            path = path.canonicalize()?;
+            Some(fs::metadata(&path)?.permissions())
+        } else {
+            None
+        };
+        Ok(Self {
+            path,
+            config,
+            document: original.parse()?,
+            permissions,
+        })
+    }
+
+    fn result(self, rule: &str, changed: bool) -> RuleUpdate {
+        RuleUpdate {
+            path: self.path,
+            changed,
+            rule: self.config.rules.get(rule).cloned(),
+        }
+    }
+
+    fn save(mut self, rule: &str) -> Result<RuleUpdate> {
+        let updated = self.document.to_string();
+        // Validate the edited document before creating directories or replacing any file.
+        self.config =
+            toml::from_str::<Config>(&updated).context("Cannot serialize updated configuration")?;
+        let parent = self.path.parent().context("Configuration has no parent")?;
+        fs::create_dir_all(parent).with_context(|| {
+            format!("Cannot create configuration directory {}", parent.display())
+        })?;
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        temporary.write_all(updated.as_bytes())?;
+        if let Some(permissions) = &self.permissions {
+            temporary.as_file().set_permissions(permissions.clone())?;
+        }
+        temporary.as_file().sync_all()?;
+        temporary
+            .persist(&self.path)
+            .with_context(|| format!("Cannot save configuration {}", self.path.display()))?;
+        self.path = self.path.canonicalize()?;
+        Ok(self.result(rule, true))
+    }
 }
 
 pub fn plugins(directory: Option<&Path>, explicit: &[PathBuf]) -> Result<Vec<PathBuf>> {

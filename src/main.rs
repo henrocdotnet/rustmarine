@@ -48,6 +48,8 @@ enum Commands {
     Doctor(DoctorArgs),
     /// Disable a rule in the project configuration
     Ignore(IgnoreArgs),
+    /// Update project configuration without starting the analysis engine
+    Config(ConfigArgs),
 }
 
 #[derive(Args)]
@@ -170,11 +172,113 @@ struct IgnoreArgs {
     config: Option<PathBuf>,
 }
 
+#[derive(Args)]
+struct ConfigArgs {
+    #[command(subcommand)]
+    command: ConfigCommand,
+}
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    /// List, inspect, update, or remove project rule overrides
+    Rule(RuleArgs),
+}
+
+#[derive(Args)]
+struct RuleArgs {
+    #[command(subcommand)]
+    command: RuleCommand,
+}
+
+#[derive(Subcommand)]
+enum RuleCommand {
+    /// List saved rule overrides (not the analyzer's rule catalog)
+    List(RuleListArgs),
+    /// Show a saved rule override; an unconfigured rule returns null
+    Get(RuleGetArgs),
+    /// Merge activation and PARAMETER=VALUE settings into a rule override
+    Set(RuleSetArgs),
+    /// Remove an override, or selected parameters, to restore analyzer defaults
+    Delete(RuleDeleteArgs),
+}
+
+#[derive(Args)]
+struct ConfigLocation {
+    /// Project directory; defaults to current directory
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// Configuration file (default: <root>/.rustmarine/config.toml)
+    #[arg(long)]
+    config: Option<PathBuf>,
+}
+
+#[derive(Args)]
+struct RuleListArgs {
+    /// Filter by the exact rule language/repository prefix, for example go or typescript
+    #[arg(long, value_parser = parse_rule_language)]
+    language: Option<String>,
+    #[command(flatten)]
+    location: ConfigLocation,
+}
+
+#[derive(Args)]
+struct RuleGetArgs {
+    /// Full rule key from a finding, for example go:S3776
+    #[arg(value_parser = config::parse_rule_key)]
+    rule: String,
+    #[command(flatten)]
+    location: ConfigLocation,
+}
+
+#[derive(Args)]
+struct RuleSetArgs {
+    /// Full rule key from a finding, for example go:S3776
+    #[arg(value_parser = config::parse_rule_key)]
+    rule: String,
+    /// Named parameters; values are strings and names are case-sensitive
+    #[arg(value_name = "PARAMETER=VALUE", value_parser = config::parse_parameter)]
+    parameters: Vec<(String, String)>,
+    /// Enable or disable the rule; preserves the existing setting when omitted
+    #[arg(long)]
+    active: Option<bool>,
+    #[command(flatten)]
+    location: ConfigLocation,
+}
+
+#[derive(Args)]
+struct RuleDeleteArgs {
+    /// Full rule key from a finding, for example go:S3776
+    #[arg(value_parser = config::parse_rule_key)]
+    rule: String,
+    /// Parameters to remove; omit to remove the entire rule override
+    #[arg(value_name = "PARAMETER", value_parser = config::parse_parameter_key)]
+    parameters: Vec<String>,
+    #[command(flatten)]
+    location: ConfigLocation,
+}
+
 #[derive(Clone, Copy, ValueEnum)]
 enum FailOn {
     Any,
     High,
     None,
+}
+
+fn parse_rule_language(value: &str) -> std::result::Result<String, String> {
+    config::parse_parameter_key(value)
+        .map_err(|_| "Expected a rule language prefix such as go or typescript".into())
+}
+
+fn filter_rules_by_language(
+    rules: &mut BTreeMap<String, config::RuleConfig>,
+    language: Option<&str>,
+) {
+    if let Some(language) = language {
+        rules.retain(|key, _| {
+            key.split_once(':')
+                .is_some_and(|(repository, _)| repository == language)
+        });
+    }
 }
 
 fn parse_property(value: &str) -> std::result::Result<(String, String), String> {
@@ -470,6 +574,54 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
     Ok((report, code))
 }
 
+fn configure_rule(command: &RuleCommand) -> Result<u8> {
+    let report = match command {
+        RuleCommand::List(args) => {
+            let (path, mut rules) =
+                config::list_rules(&args.location.root, args.location.config.as_deref())?;
+            filter_rules_by_language(&mut rules, args.language.as_deref());
+            serde_json::json!({"schema_version": 1, "config_path": path, "rules": rules})
+        }
+        RuleCommand::Get(args) => {
+            let (path, mut rules) =
+                config::list_rules(&args.location.root, args.location.config.as_deref())?;
+            let rule = rules.remove(&args.rule);
+            serde_json::json!({
+                "schema_version": 1, "config_path": path, "rule_key": args.rule,
+                "configured": rule.is_some(), "rule": rule,
+            })
+        }
+        RuleCommand::Set(args) => {
+            let update = config::set_rule(
+                &args.location.root,
+                args.location.config.as_deref(),
+                &args.rule,
+                args.active,
+                &args.parameters,
+            )?;
+            rule_update_report(&args.rule, update)
+        }
+        RuleCommand::Delete(args) => {
+            let update = config::delete_rule(
+                &args.location.root,
+                args.location.config.as_deref(),
+                &args.rule,
+                &args.parameters,
+            )?;
+            rule_update_report(&args.rule, update)
+        }
+    };
+    write_stdout(&serde_json::to_string_pretty(&report)?)?;
+    Ok(0)
+}
+
+fn rule_update_report(rule: &str, update: config::RuleUpdate) -> serde_json::Value {
+    serde_json::json!({
+        "schema_version": 1, "config_path": update.path, "rule_key": rule,
+        "configured": update.rule.is_some(), "rule": update.rule, "changed": update.changed,
+    })
+}
+
 fn run(cli: &Cli) -> Result<u8> {
     match &cli.command {
         Commands::Init(args) => {
@@ -479,6 +631,9 @@ fn run(cli: &Cli) -> Result<u8> {
             Ok(0)
         }
         Commands::Scan(args) => scan(args),
+        Commands::Config(args) => match &args.command {
+            ConfigCommand::Rule(args) => configure_rule(&args.command),
+        },
         Commands::Ignore(args) => {
             let (path, changed) =
                 config::ignore_rule(&args.root, args.config.as_deref(), &args.rule)?;
@@ -541,7 +696,7 @@ fn main() -> ExitCode {
     match run(&cli) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
-            if matches!(&cli.command, Commands::Ignore(_))
+            if matches!(&cli.command, Commands::Ignore(_) | Commands::Config(_))
                 || matches!(&cli.command, Commands::Scan(args) if matches!(args.format, OutputFormat::Json))
             {
                 let _ = write_stdout(&serde_json::json!({"schema_version":1,"error":{"message":format!("{error:#}")}}).to_string());
@@ -557,6 +712,106 @@ fn main() -> ExitCode {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod tests {
     use super::*;
+
+    fn rule_overrides() -> BTreeMap<String, config::RuleConfig> {
+        [
+            "go:S3776",
+            "go:S1135",
+            "go-other:S3776",
+            "Go:S3776",
+            "typescript:S1135",
+            "javascript:S1135",
+            "missing-repository-separator",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            (
+                key.to_owned(),
+                config::RuleConfig {
+                    active: index % 2 == 0,
+                    parameters: BTreeMap::from([("marker".into(), index.to_string())]),
+                },
+            )
+        })
+        .collect()
+    }
+
+    #[test]
+    fn rule_language_validation_accepts_repository_names_without_normalizing_them() {
+        for language in [
+            "go",
+            "typescript",
+            "javascript",
+            "java",
+            "Web",
+            "go-other",
+            "custom_repo.v2",
+        ] {
+            assert_eq!(parse_rule_language(language).unwrap(), language);
+        }
+    }
+
+    #[test]
+    fn rule_language_validation_rejects_rule_keys_whitespace_and_patterns() {
+        for language in [
+            "", "go:S3776", " go", "go ", "go\n", "go\t", "go/*", "*", "pýthon",
+        ] {
+            let error = parse_rule_language(language).unwrap_err();
+            assert!(
+                error.contains("Expected a rule language prefix"),
+                "{language:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn rule_language_filter_matches_exact_case_sensitive_repositories_and_preserves_settings() {
+        let original = rule_overrides();
+        for (language, expected_keys) in [
+            ("go", vec!["go:S1135", "go:S3776"]),
+            ("Go", vec!["Go:S3776"]),
+            ("go-other", vec!["go-other:S3776"]),
+            ("typescript", vec!["typescript:S1135"]),
+            ("javascript", vec!["javascript:S1135"]),
+        ] {
+            let mut filtered = original.clone();
+            filter_rules_by_language(&mut filtered, Some(language));
+            assert_eq!(
+                filtered.keys().map(String::as_str).collect::<Vec<_>>(),
+                expected_keys
+            );
+            for key in expected_keys {
+                assert_eq!(
+                    serde_json::to_value(&filtered[key]).unwrap(),
+                    serde_json::to_value(&original[key]).unwrap(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rule_language_filter_without_a_language_preserves_all_overrides() {
+        let mut rules = rule_overrides();
+        let original = serde_json::to_value(&rules).unwrap();
+        filter_rules_by_language(&mut rules, None);
+        assert_eq!(serde_json::to_value(&rules).unwrap(), original);
+    }
+
+    #[test]
+    fn rule_language_filter_handles_missing_languages_and_empty_configuration() {
+        for language in ["ruby", "GO", "missing-repository-separator"] {
+            let mut rules = rule_overrides();
+            filter_rules_by_language(&mut rules, Some(language));
+            assert!(rules.is_empty());
+        }
+        for language in [None, Some("go")] {
+            let mut rules = BTreeMap::new();
+            filter_rules_by_language(&mut rules, language);
+            assert!(rules.is_empty());
+        }
+    }
+
     #[test]
     fn understands_java_versions() {
         assert_eq!(

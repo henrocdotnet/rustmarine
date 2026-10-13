@@ -141,9 +141,43 @@ rustmarine ignore typescript:S1134 --root /path/to/project
 
 Success returns JSON with `schema_version`, the absolute `config_path`, `rule_key`, `active: false`, and `changed`. Exit status is 0, including when the rule was already disabled; operational errors return the JSON `error.message` envelope and exit 2. Argument errors use Clap's stderr diagnostics. The setting takes effect on subsequent scans. From the checkout, `make ignore ARGS='typescript:S1135 --root /path/to/project'` runs the same command.
 
+Manage saved rule overrides with `config rule`:
+
+| Command | Behavior |
+| --- | --- |
+| `config rule list` | Show all saved overrides, sorted by rule key |
+| `config rule list --language LANGUAGE` | Show saved overrides for one exact rule language/repository prefix |
+| `config rule get RULE` | Show one saved override; `configured: false` and `rule: null` when absent |
+| `config rule set RULE PARAMETER=VALUE ...` | Merge one or more parameters, preserving unspecified settings |
+| `config rule set RULE --active true\|false` | Set activation, optionally together with parameters |
+| `config rule delete RULE` | Remove the entire local override, restoring analyzer defaults |
+| `config rule delete RULE PARAMETER ...` | Remove only the listed parameters, preserving activation and other parameters |
+
+```sh
+rustmarine config rule list --root /path/to/project
+rustmarine config rule list --language go --root /path/to/project
+rustmarine config rule list --language typescript --root /path/to/project
+rustmarine config rule get go:S3776 --root /path/to/project
+rustmarine config rule set go:S3776 threshold=20 --root /path/to/project
+rustmarine config rule set java:S107 max=7 constructorMax=10 --root /path/to/project
+rustmarine config rule set java:S100 'format=^[a-z][a-zA-Z0-9]*$' --root /path/to/project
+rustmarine config rule set typescript:S1135 --active false --root /path/to/project
+rustmarine config rule delete java:S107 constructorMax --root /path/to/project
+rustmarine config rule delete java:S107 max constructorMax --root /path/to/project
+rustmarine config rule delete go:S3776 --root /path/to/project
+```
+
+`set go:S3776 threshold=20` saves `parameters = { threshold = "20" }` under `[rules."go:S3776"]` in `.rustmarine/config.toml`. New overrides default to `active = true` unless `--active false` is supplied. Existing activation preferences remain unchanged unless `--active` is supplied. At least one parameter or `--active` is required. Parameters merge with existing values; duplicate parameter assignments in one command are rejected. Values are stored exactly as strings, including empty values, booleans, numbers, lists, and regular expressions. Quote assignments containing spaces or shell metacharacters. Parameter names are case-sensitive; for example, Java's S3776 uses `Threshold`, while Go's uses `threshold`.
+
+All commands support `--root` and `--config`. Relative `--config` paths are resolved from the current directory. They work without an analysis runtime; `list` and `get` inspect local overrides, not available analyzer rules or effective defaults. `list --language` matches the exact, case-sensitive prefix before `:` in a rule key, such as `go`, `typescript`, `javascript`, or `java`. JavaScript and TypeScript are separate; use the prefix from a finding for other rule repositories. Omitting the filter lists every saved override; a language with no overrides returns an empty `rules` map. Missing configuration is treated as empty: reads and deletion of absent overrides create no files. `delete` leaves existing activation preferences intact when removing only parameters; deleting a disabled rule's entire override can enable it again through the analyzer's default activation. Deleted parameters return to analyzer defaults on the next scan.
+
+Edits save atomically, preserving unrelated settings, comments, file permissions, and symlinks. Repeating identical settings or deleting an absent override/parameter leaves the file untouched. Invalid TOML and unknown config fields are rejected before writing. The commands validate rule/parameter name syntax, but do not look up analyzer metadata or validate supported parameters, value types, or ranges. Changes take effect on subsequent scans. The former `config threshold` command is replaced by `config rule set`.
+
+Success returns JSON with `schema_version` and absolute `config_path`. `list` includes a `rules` map; `get`, `set`, and `delete` include `rule_key`, `configured`, and a `rule` object containing `active` and `parameters` (or `null` when absent). Edits also include `changed`. Exit status is 0 even when unchanged or unconfigured; operational errors return the JSON `error.message` envelope and exit 2, while argument errors use stderr. From the checkout, use `make config ARGS='rule set go:S3776 threshold=20 --root /path/to/project'`. `ignore RULE` remains a shortcut for setting `--active false`.
+
 ### Test and production files
 
-Rustmarine submits both production and test files, setting Sonar's `isTest` flag explicitly. By default, tests include Go `*_test.go`, Python `test_*.py` and `*_test.py`, JavaScript/TypeScript `*.test.*` and `*.spec.*` (including JSX/TSX and module variants), and files inside directories named `test`, `tests`, `__tests__`, or `e2e`. Other files are classified as production. This classification lets each analyzer apply its test/production rule scopes; it does not exclude test files or guarantee that every analyzer checks tests with every rule.
+Rustmarine submits both production and test files, setting Sonar's `isTest` flag explicitly. By default, tests include Go `*_test.go`, Python `test_*.py` and `*_test.py`, JavaScript/TypeScript `*.test.*` and `*.spec.*` (including JSX/TSX and module variants), and files inside directories named `test`, `tests`, `_tests_`, `__tests__`, or `e2e` at any depth. Other files are classified as production. This classification lets each analyzer apply its test/production rule scopes; it does not exclude test files or guarantee that every analyzer checks tests with every rule.
 
 Add project-specific test helpers and production exceptions in `.rustmarine/config.toml`:
 

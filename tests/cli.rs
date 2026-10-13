@@ -73,6 +73,7 @@ fn help_exposes_commands_and_scan_contract() {
             && text.contains("files")
             && text.contains("doctor")
             && text.contains("ignore")
+            && text.contains("config")
     );
     assert!(text.contains("Findings exit 1") && text.contains("operational errors exit 2"));
 

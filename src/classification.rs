@@ -9,7 +9,7 @@ const DEFAULT_TEST_PATTERNS: &[&str] = &[
     "**/test_*.py",
     "**/*_test.py",
     "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
-    "**/{test,tests,__tests__,e2e}/**",
+    "**/{test,tests,_tests_,__tests__,e2e}/**",
 ];
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +98,9 @@ mod tests {
             "ui/tests/setup.ts",
             "ui/e2e/helpers.ts",
             "ui/src/__tests__/App.tsx",
+            "_tests_/helpers.ts",
+            "ui/src/_tests_/App.tsx",
+            "_tests_/nested/helpers.go",
             "src/test/java/Example.java",
         ] {
             assert!(classifier.is_test(Path::new(path)), "{path}");
@@ -110,6 +113,9 @@ mod tests {
             "latest/example.py",
             "test-data/sample.py",
             "test_receiver.py.bak",
+            "_tests_data/helpers.ts",
+            "ui/src/_tests_extra/App.tsx",
+            "ui/src/_tests_.ts",
         ] {
             assert!(!classifier.is_test(Path::new(path)), "{path}");
         }
@@ -119,17 +125,28 @@ mod tests {
     fn custom_patterns_extend_defaults_and_production_overrides_win() {
         let config = FileClassificationConfig {
             test_patterns: vec!["ui/src/testSession.ts".into(), "fixtures/*.py".into()],
-            main_patterns: vec!["tests/production/**".into(), "**/server_test.go".into()],
+            main_patterns: vec![
+                "tests/production/**".into(),
+                "**/server_test.go".into(),
+                "**/_tests_/production/**".into(),
+            ],
             ..Default::default()
         };
         let classifier = FileClassifier::new(&config).unwrap();
-        for path in ["ui/src/testSession.ts", "fixtures/data.py", "app_test.go"] {
+        for path in [
+            "ui/src/testSession.ts",
+            "fixtures/data.py",
+            "app_test.go",
+            "_tests_/helpers.ts",
+        ] {
             assert!(classifier.is_test(Path::new(path)), "{path}");
         }
         for path in [
             "tests/production/server.py",
             "api/server_test.go",
             "fixtures/nested/data.py",
+            "_tests_/production/helpers.ts",
+            "ui/_tests_/production/helpers.ts",
         ] {
             assert!(!classifier.is_test(Path::new(path)), "{path}");
         }
@@ -144,6 +161,7 @@ mod tests {
         };
         let classifier = FileClassifier::new(&config).unwrap();
         assert!(!classifier.is_test(Path::new("tests/test_main.py")));
+        assert!(!classifier.is_test(Path::new("_tests_/helpers.ts")));
         assert!(classifier.is_test(Path::new("checks/main.py")));
         config.main_patterns.push("[".into());
         let error = FileClassifier::new(&config).err().unwrap();
