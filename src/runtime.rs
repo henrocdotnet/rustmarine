@@ -436,8 +436,12 @@ pub fn load(explicit: Option<&Path>) -> Result<Option<Installation>> {
 
 fn smoke(runtime: &Installation) -> Result<()> {
     for (path, flag, expected) in [
-        (&runtime.java, "-version", "21."),
-        (&runtime.node, "--version", "v22."),
+        (&runtime.java, "-version", runtime.java_version.clone()),
+        (
+            &runtime.node,
+            "--version",
+            format!("v{}", runtime.node_version),
+        ),
     ] {
         let output = Command::new(path)
             .arg(flag)
@@ -448,7 +452,7 @@ fn smoke(runtime: &Installation) -> Result<()> {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        if !output.status.success() || !text.contains(expected) {
+        if !output.status.success() || !text.contains(&expected) {
             bail!(
                 "Managed runtime version check failed for {}: {text}",
                 path.display()

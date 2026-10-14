@@ -1,90 +1,90 @@
 {
   "schema_version": 1,
-  "id": "2026-10-03.1",
-  "backend_version": "11.10.0.86299",
+  "id": "2026-10-13.1",
+  "backend_version": "12.1.0.87730",
   "artifacts": [
     {
       "name": "sonarlint-backend-cli",
-      "version": "11.10.0.86299",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/sonarlint/core/sonarlint-backend-cli/11.10.0.86299/sonarlint-backend-cli-11.10.0.86299-no-arch.zip",
-      "sha256": "f3d81435fe9df8ac9b7dd3daf5be856cc6c073f59d94a020bbc6b62238a938f8",
+      "version": "12.1.0.87730",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/sonarlint/core/sonarlint-backend-cli/12.1.0.87730/sonarlint-backend-cli-12.1.0.87730-no-arch.zip",
+      "sha256": "24ce6e96c0160a2db84d7c59ed941ac3a6366bdc1e8ab8eddfb5209b6c06a4ef",
       "kind": "zip"
     },
     {
       "name": "sonar-java-plugin",
-      "version": "8.26.0.42915",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/java/sonar-java-plugin/8.26.0.42915/sonar-java-plugin-8.26.0.42915.jar",
-      "sha256": "0511f1b95bdbc96c208b09f783be48d5398027725b4ff3cbdbcb7c023f6817db",
+      "version": "8.44.0.48651",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/java/sonar-java-plugin/8.44.0.48651/sonar-java-plugin-8.44.0.48651.jar",
+      "sha256": "308760b0ae888f32489014d8392faeb0b9ac1b3074729858c9415ce0454e2ef3",
       "kind": "jar"
     },
     {
       "name": "sonar-python-plugin",
-      "version": "5.19.0.32098",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/python/sonar-python-plugin/5.19.0.32098/sonar-python-plugin-5.19.0.32098.jar",
-      "sha256": "a17f66941123ca1460461eb1d718606667043325ada789573f7ee1480774f1a2",
+      "version": "5.32.0.37250",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/python/sonar-python-plugin/5.32.0.37250/sonar-python-plugin-5.32.0.37250.jar",
+      "sha256": "f659212a6846a0044a88d98f2ac6a744ad151cddee8be953b8cdd4fb74a21641",
       "kind": "jar"
     },
     {
       "name": "sonar-javascript-plugin",
-      "version": "12.0.0.38664",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/javascript/sonar-javascript-plugin/12.0.0.38664/sonar-javascript-plugin-12.0.0.38664.jar",
-      "sha256": "075a868935738df0f95099b2e234eae87497b483584832cd3c0a3a4bec2e52ef",
+      "version": "14.1.0.46226",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/javascript/sonar-javascript-plugin/14.1.0.46226/sonar-javascript-plugin-14.1.0.46226.jar",
+      "sha256": "31ecddea45b65e9471e690884730092140ebf5922ccdb8e50a9e1fed2fe079d5",
       "kind": "jar"
     },
     {
       "name": "sonar-html-plugin",
-      "version": "3.22.0.7011",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/html/sonar-html-plugin/3.22.0.7011/sonar-html-plugin-3.22.0.7011.jar",
-      "sha256": "dcd99b10669b7f7c32518a6f353bee55e7e1421c4c6e3f1b336985b0c7890760",
+      "version": "3.32.0.9524",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/html/sonar-html-plugin/3.32.0.9524/sonar-html-plugin-3.32.0.9524.jar",
+      "sha256": "0910a1e83ae8152e24b5f990399cbd52d169fd94eca5a3303593df489af40782",
       "kind": "jar"
     },
     {
       "name": "sonar-kotlin-plugin",
-      "version": "3.4.0.8957",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/kotlin/sonar-kotlin-plugin/3.4.0.8957/sonar-kotlin-plugin-3.4.0.8957.jar",
-      "sha256": "b63b00c6c08dc2088aa2d14ad2cef66352f515c81a3b14db96e1f604572788fc",
+      "version": "3.12.0.11025",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/kotlin/sonar-kotlin-plugin/3.12.0.11025/sonar-kotlin-plugin-3.12.0.11025.jar",
+      "sha256": "a569c86cb0baa9c6aeab7096c93c2389bc3c4f242ee0edfe0e8241c7d989f2c9",
       "kind": "jar"
     },
     {
       "name": "sonar-ruby-plugin",
-      "version": "1.22.0.1992",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/slang/sonar-ruby-plugin/1.22.0.1992/sonar-ruby-plugin-1.22.0.1992.jar",
-      "sha256": "1d57a2425cb3a5253b1c9d8c0c174b99e844563cc94ec6a4d783e23bd3b82913",
+      "version": "1.25.0.2597",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/slang/sonar-ruby-plugin/1.25.0.2597/sonar-ruby-plugin-1.25.0.2597.jar",
+      "sha256": "f8a3c21f83d6c3f315d004a44743f264c93c2f2233057922e722e16394f44c67",
       "kind": "jar"
     },
     {
       "name": "sonar-xml-plugin",
-      "version": "2.16.0.7616",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/xml/sonar-xml-plugin/2.16.0.7616/sonar-xml-plugin-2.16.0.7616.jar",
-      "sha256": "8331553cb2f80a21b61dd99f579dace2727dce4f2515245a5da95796da3dceb3",
+      "version": "2.19.0.8138",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/xml/sonar-xml-plugin/2.19.0.8138/sonar-xml-plugin-2.19.0.8138.jar",
+      "sha256": "b9397446584e3ac2a9bd62a1bb7e15f6059e03bcde9bfff6699d6360cda150c9",
       "kind": "jar"
     },
     {
       "name": "sonar-go-plugin",
-      "version": "1.33.0.5387",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/go/sonar-go-plugin/1.33.0.5387/sonar-go-plugin-1.33.0.5387.jar",
-      "sha256": "25ef59046e7ee0a164eb4ba60d0f5a9dd587fccbb57329196ffd6c1b025511e4",
+      "version": "1.47.0.9174",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/go/sonar-go-plugin/1.47.0.9174/sonar-go-plugin-1.47.0.9174.jar",
+      "sha256": "d02725c40b2b19321da672268a484e35d2fdcc2b055149d7deb2cc52f9223047",
       "kind": "jar"
     },
     {
       "name": "sonar-php-plugin",
-      "version": "3.55.0.15704",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/php/sonar-php-plugin/3.55.0.15704/sonar-php-plugin-3.55.0.15704.jar",
-      "sha256": "bb51689e8543fabe42b2792e9f0b3c47a59c2c985ac19511af1b6510d900747c",
+      "version": "4.1.0.16998",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/php/sonar-php-plugin/4.1.0.16998/sonar-php-plugin-4.1.0.16998.jar",
+      "sha256": "79e01d87fa098e784e2675d2900006623f6ef2dbeccb751d6b3c39911d7bb7f3",
       "kind": "jar"
     },
     {
       "name": "sonar-text-plugin",
-      "version": "2.41.0.10709",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/text/sonar-text-plugin/2.41.0.10709/sonar-text-plugin-2.41.0.10709.jar",
-      "sha256": "0b273549a8a8113ed80bf3f52aef79e6dfd637f9378f8505d5339f2fba4f4518",
+      "version": "2.52.0.13617",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/text/sonar-text-plugin/2.52.0.13617/sonar-text-plugin-2.52.0.13617.jar",
+      "sha256": "34d38921916d132ec786469ebb300fada2b6420b4704ce9ed91639a6bab55189",
       "kind": "jar"
     },
     {
       "name": "sonar-iac-plugin",
-      "version": "2.6.1.19203",
-      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/iac/sonar-iac-plugin/2.6.1.19203/sonar-iac-plugin-2.6.1.19203.jar",
-      "sha256": "4d7c5e2aecf147ee86c4c6fe06da9deaa90933ec6304f4d47bf0165d7af4e4c1",
+      "version": "2.21.0.24162",
+      "url": "https://repo.maven.apache.org/maven2/org/sonarsource/iac/sonar-iac-plugin/2.21.0.24162/sonar-iac-plugin-2.21.0.24162.jar",
+      "sha256": "d0437bc73b2dee5b1c80786b0f2d9eb086e59c8e1d968eb7a685d9e736865700",
       "kind": "jar"
     }
   ],
@@ -135,44 +135,44 @@
   "node": {
     "macos-aarch64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-arm64.tar.gz",
-      "sha256": "23b25245dcfb9af7262f8ff142e9e2e0af025368117329e7a7458a51e5922f53",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz",
+      "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
       "kind": "tar_gz"
     },
     "macos-x86_64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-darwin-x64.tar.gz",
-      "sha256": "8a677b0219178efd6eb0e475457c4afb452b521a92f6e67845a73bd85727f2a8",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz",
+      "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
       "kind": "tar_gz"
     },
     "linux-aarch64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-arm64.tar.gz",
-      "sha256": "5ced2d48d1d7198739b7f86804de0171aefb6823b684b12341d3321afc3cb0b2",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz",
+      "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5",
       "kind": "tar_gz"
     },
     "linux-x86_64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.gz",
-      "sha256": "1084aa36196bba4c3a5e69a1ee388a6e4ff729dad09445fbcd434b28fe3c24af",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
+      "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
       "kind": "tar_gz"
     },
     "windows-aarch64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-arm64.zip",
-      "sha256": "33dad22e4cef5ee8f9fbb1b0d037fdacd0e56d12a4580f0d63f68b894deab535",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-arm64.zip",
+      "sha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921",
       "kind": "zip"
     },
     "windows-x86_64": {
       "name": "node",
-      "version": "22.23.3",
-      "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-win-x64.zip",
-      "sha256": "2b0ff57b049cda1bbcea2240eec20467018713c1efe1f7360c2681859b90ed71",
+      "version": "24.21.0",
+      "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+      "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
       "kind": "zip"
     }
   }

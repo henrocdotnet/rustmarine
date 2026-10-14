@@ -24,9 +24,9 @@ rustmarine doctor
 rustmarine scan --root /path/to/project
 ```
 
-`init` downloads SLOOP and language analyzer JARs directly from **Maven Central**, a full **Eclipse Temurin Java 21 JRE** from Adoptium's GitHub releases, and **Node.js 22** from nodejs.org. It does not use IntelliJ, a JetBrains Marketplace ZIP, Gradle, Artifactory credentials, preinstalled Java/Node, or files from this repository's IntelliJ plugin. The CLI's own `runtime-manifest.json` pins component versions, source URLs, and SHA-256 digests.
+`init` downloads SLOOP and language analyzer JARs directly from **Maven Central**, a full **Eclipse Temurin Java 21 JRE** from Adoptium's GitHub releases, and **Node.js 24 LTS** from nodejs.org. It does not use IntelliJ, a JetBrains Marketplace ZIP, Gradle, Artifactory credentials, preinstalled Java/Node, or files from this repository's IntelliJ plugin. The CLI's own `runtime-manifest.json` pins component versions, source URLs, and SHA-256 digests.
 
-The current catalog provisions SLOOP `11.10.0.86299`, Temurin `21.0.12.1+1`, Node `22.23.3`, and eleven analyzers for Java, Python, JavaScript/TypeScript/CSS, HTML, Kotlin, Ruby, XML, Go, PHP, IaC/YAML, and secrets detection. Backend and analyzer releases are selected and verified together by this client; their version numbers are independent.
+The current catalog (`2026-10-13.1`) provisions SLOOP `12.1.0.87730`, Temurin `21.0.12.1+1`, Node `24.21.0`, and eleven analyzers for Java, Python, JavaScript/TypeScript/CSS, HTML, Kotlin, Ruby, XML, Go, PHP, IaC/YAML, and secrets detection. Backend and analyzer releases are selected and verified together by this client; their version numbers are independent.
 
 Every download is verified before extraction. Setup stages the installation, executes the managed Java/Node binaries, and requires real Java, Python, and JavaScript findings before activating it. A successful `init` returns JSON with the installed versions and executable paths. Progress and errors go to stderr; an unsuccessful setup exits 2. Setup does not modify the project or its configuration.
 
