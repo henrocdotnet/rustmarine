@@ -60,6 +60,8 @@ Updates are explicit and reproducible: a new CLI release ships a reviewed runtim
 
 External installations remain optional: `--backend-dir`, `--analyzer-dir`, repeatable `--plugin`, `--java`, and `--node` override managed defaults. `RUSTMARINE_BACKEND_DIR` and `RUSTMARINE_ANALYZER_DIR` are still supported. Providing an external backend opts out of managed component discovery, so the caller supplies its analyzers and Java. Backend binaries and analyzers are downloaded assets, not bundled in the Rust executable; their upstream licenses and notices are preserved in the distributions.
 
+`doctor` reports the selected SLOOP version as `backend_version`, and saved scans record it as `SLOOP version:` in `scan.log` before starting the engine. Both read the selected backend JAR's Maven metadata, including for external runtimes. Missing, unreadable, or conflicting version metadata is reported as `null` in `doctor` and `unknown` in the log. Scans with no selected files do not resolve or start a backend and have no SLOOP version entry.
+
 ## Agent workflow
 
 ```sh

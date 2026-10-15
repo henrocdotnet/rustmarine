@@ -311,10 +311,21 @@ fn scans_save_selected_output_format_and_operational_errors() {
 #[cfg(unix)]
 #[test]
 fn backend_stderr_is_saved_without_verbose_and_after_backend_exit() {
+    use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     fs::create_dir_all(root.join("backend/lib")).unwrap();
+    let mut jar = zip::ZipWriter::new(
+        fs::File::create(root.join("backend/lib/renamed-backend.jar")).unwrap(),
+    );
+    jar.start_file(
+        "META-INF/maven/org.sonarsource.sonarlint.core/sonarlint-backend-cli/pom.properties",
+        zip::write::SimpleFileOptions::default(),
+    )
+    .unwrap();
+    jar.write_all(b"version=9.8.7.654\n").unwrap();
+    jar.finish().unwrap();
     fs::write(root.join("analyzer.jar"), "test placeholder").unwrap();
     fs::write(root.join("source.py"), "print('hello')\n").unwrap();
     let java = root.join("fake-java");
@@ -339,8 +350,8 @@ fn backend_stderr_is_saved_without_verbose_and_after_backend_exit() {
     );
     assert_eq!(output.status.code(), Some(2));
     let run = &runs(root)[0];
-    assert!(fs::read_to_string(run.join("scan.log"))
-        .unwrap()
-        .contains("[sonar stderr] test backend diagnostic"));
+    let log = fs::read_to_string(run.join("scan.log")).unwrap();
+    assert!(log.contains("SLOOP version: 9.8.7.654"), "{log}");
+    assert!(log.contains("[sonar stderr] test backend diagnostic"));
     assert!(run.join("report.json").is_file());
 }

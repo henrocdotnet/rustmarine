@@ -43,6 +43,19 @@ fn offline_init_cannot_activate_a_partial_environment() {
 }
 
 #[cfg(unix)]
+fn backend_jar(backend: &Path, version: &str) {
+    use std::io::Write;
+    let mut jar = zip::ZipWriter::new(fs::File::create(backend.join("lib/backend.jar")).unwrap());
+    jar.start_file(
+        "META-INF/maven/org.sonarsource.sonarlint.core/sonarlint-backend-cli/pom.properties",
+        zip::write::SimpleFileOptions::default(),
+    )
+    .unwrap();
+    writeln!(jar, "version={version}").unwrap();
+    jar.finish().unwrap();
+}
+
+#[cfg(unix)]
 fn fake_managed_runtime(runtime: &Path) -> std::path::PathBuf {
     use sha2::{Digest, Sha256};
     use std::os::unix::fs::PermissionsExt;
@@ -56,6 +69,10 @@ fn fake_managed_runtime(runtime: &Path) -> std::path::PathBuf {
     for directory in ["backend/lib", "analyzers", "java/bin", "node/bin"] {
         fs::create_dir_all(release.join(directory)).unwrap();
     }
+    backend_jar(
+        &release.join("backend"),
+        manifest["backend_version"].as_str().unwrap(),
+    );
     let java = release.join("java/bin/java");
     fs::write(&java, "#!/bin/sh\necho 'openjdk version \"21.0.1\"' >&2\n").unwrap();
     fs::set_permissions(&java, fs::Permissions::from_mode(0o755)).unwrap();
@@ -81,6 +98,8 @@ fn doctor_discovers_managed_runtime_without_external_settings() {
     );
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let manifest: Value = serde_json::from_str(include_str!("../runtime-manifest.json")).unwrap();
+    assert_eq!(report["backend_version"], manifest["backend_version"]);
     assert_eq!(
         report["java"],
         release.join("java/bin/java").to_str().unwrap()
@@ -94,6 +113,39 @@ fn doctor_discovers_managed_runtime_without_external_settings() {
             .to_str()
             .unwrap()
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn doctor_reports_external_backend_metadata_without_using_the_managed_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = temp.path().join("runtime");
+    let managed = fake_managed_runtime(&runtime);
+    let external = temp.path().join("external");
+    fs::create_dir_all(external.join("lib")).unwrap();
+    fs::write(external.join("analyzer.jar"), "placeholder").unwrap();
+    for version in [None, Some("9.8.7.654")] {
+        if let Some(version) = version {
+            backend_jar(&external, version);
+        }
+        let output = cli(
+            &runtime,
+            &[
+                "doctor",
+                "--root",
+                temp.path().to_str().unwrap(),
+                "--backend-dir",
+                external.to_str().unwrap(),
+                "--plugin",
+                external.join("analyzer.jar").to_str().unwrap(),
+                "--java",
+                managed.join("java/bin/java").to_str().unwrap(),
+            ],
+        );
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["backend_version"], serde_json::json!(version));
+    }
 }
 
 #[test]

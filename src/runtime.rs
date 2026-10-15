@@ -72,6 +72,39 @@ pub struct Installation {
     pub node: PathBuf,
 }
 
+/// Read the selected backend's Maven metadata, including external distributions.
+/// Missing or ambiguous metadata must not be replaced with the catalog's version.
+pub fn backend_version(backend_dir: &Path) -> Option<String> {
+    const PROPERTIES: &str =
+        "META-INF/maven/org.sonarsource.sonarlint.core/sonarlint-backend-cli/pom.properties";
+    let versions: std::collections::BTreeSet<String> = fs::read_dir(backend_dir.join("lib"))
+        .ok()?
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            if path.extension()? != "jar" {
+                return None;
+            }
+            let mut archive = zip::ZipArchive::new(File::open(path).ok()?).ok()?;
+            let mut properties = String::new();
+            archive
+                .by_name(PROPERTIES)
+                .ok()?
+                .take(64 * 1024)
+                .read_to_string(&mut properties)
+                .ok()?;
+            properties.lines().find_map(|line| {
+                let version = line.trim().strip_prefix("version=")?.trim();
+                (!version.is_empty()).then(|| version.to_owned())
+            })
+        })
+        .collect();
+    if versions.len() == 1 {
+        versions.into_iter().next()
+    } else {
+        None
+    }
+}
+
 fn manifest() -> Result<Manifest> {
     let manifest: Manifest = serde_json::from_str(include_str!("../runtime-manifest.json"))?;
     if manifest.schema_version != 1 {
@@ -674,6 +707,48 @@ mod tests {
         for key in catalog.java.keys() {
             assert!(catalog.node.contains_key(key));
         }
+    }
+
+    fn backend_metadata(path: &Path, properties: &str) {
+        let mut jar = zip::ZipWriter::new(File::create(path).unwrap());
+        jar.start_file(
+            "META-INF/maven/org.sonarsource.sonarlint.core/sonarlint-backend-cli/pom.properties",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        jar.write_all(properties.as_bytes()).unwrap();
+        jar.finish().unwrap();
+    }
+
+    #[test]
+    fn backend_version_reads_metadata_even_when_the_jar_is_renamed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("lib")).unwrap();
+        backend_metadata(
+            &dir.path().join("lib/sonarlint-backend-cli-incorrect.jar"),
+            "# Maven metadata\r\nartifactId=sonarlint-backend-cli\r\nversion=9.8.7.654\r\n",
+        );
+        assert_eq!(backend_version(dir.path()).as_deref(), Some("9.8.7.654"));
+    }
+
+    #[test]
+    fn backend_version_is_unknown_for_missing_or_unreadable_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(backend_version(dir.path()), None);
+        fs::create_dir(dir.path().join("lib")).unwrap();
+        fs::write(dir.path().join("lib/corrupt.jar"), "not a jar").unwrap();
+        zip_file(&dir.path().join("lib/unrelated.jar"), "unrelated");
+        backend_metadata(&dir.path().join("lib/backend.jar"), "version=\n");
+        assert_eq!(backend_version(dir.path()), None);
+    }
+
+    #[test]
+    fn backend_version_is_unknown_for_conflicting_distributions() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("lib")).unwrap();
+        backend_metadata(&dir.path().join("lib/first.jar"), "version=1.0\n");
+        backend_metadata(&dir.path().join("lib/second.jar"), "version=2.0\n");
+        assert_eq!(backend_version(dir.path()), None);
     }
 
     #[test]

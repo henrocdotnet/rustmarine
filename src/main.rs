@@ -527,6 +527,13 @@ fn scan_report(args: &ScanArgs, log: Option<runs::RunLog>) -> Result<(ScanReport
             args.verbose,
             &args.properties,
         )?;
+        if let Some(log) = &log {
+            let version = runtime::backend_version(&options.backend_dir);
+            log.line(&format!(
+                "SLOOP version: {}",
+                version.as_deref().unwrap_or("unknown")
+            ))?;
+        }
         options.log = log;
         let result = engine::analyze(&options, &selected.root, &selected.files, &classifier)?;
         report.findings = output::normalize(&selected.root, result.findings)?;
@@ -684,7 +691,7 @@ fn run(cli: &Cli) -> Result<u8> {
                 bail!("Java 21+ is required; detected Java {major}");
             }
             write_stdout(&serde_json::to_string_pretty(
-                &serde_json::json!({"backend_dir":options.backend_dir,"plugins":options.plugins,"java":options.java,"java_version":version.trim(),"note":"Path checks passed; scan verifies engine compatibility and analyzer readiness."}),
+                &serde_json::json!({"backend_dir":options.backend_dir,"backend_version":runtime::backend_version(&options.backend_dir),"plugins":options.plugins,"java":options.java,"java_version":version.trim(),"note":"Path checks passed; scan verifies engine compatibility and analyzer readiness."}),
             )?)?;
             Ok(0)
         }

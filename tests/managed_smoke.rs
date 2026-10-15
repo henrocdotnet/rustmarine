@@ -84,10 +84,23 @@ fn standalone_init_discovery_offline_reuse_and_repair() {
             "Missing {prefix}: {report}"
         );
     }
-    success(run(
+    let doctor = success(run(
         &runtime,
         &["doctor", "--root", project.to_str().unwrap()],
     ));
+    assert_eq!(doctor["backend_version"], install["backend_version"]);
+    let run_dir = fs::read_dir(project.join(".rustmarine/runs"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert!(fs::read_to_string(run_dir.join("scan.log"))
+        .unwrap()
+        .contains(&format!(
+            "SLOOP version: {}",
+            install["backend_version"].as_str().unwrap()
+        )));
     let offline = run(&runtime, &["init", "--offline"]);
     assert!(!String::from_utf8_lossy(&offline.stderr).contains("Downloading"));
     assert_eq!(success(offline)["release_dir"], install["release_dir"]);
